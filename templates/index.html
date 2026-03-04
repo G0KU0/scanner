@@ -191,7 +191,9 @@ function connectWS() {
         ? 'wss:' : 'ws:';
     ws = new WebSocket(protocol + '//' + location.host + '/ws');
 
-    ws.onopen = () => console.log('WS connected');
+    ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+    };
 
     ws.onmessage = (e) => {
         if (e.data === 'pong') return;
@@ -204,8 +206,12 @@ function connectWS() {
     };
 
     ws.onclose = () => {
-        console.log('WS disconnected, reconnecting...');
+        console.log('❌ WS disconnected, reconnecting...');
         setTimeout(connectWS, 2000);
+    };
+
+    ws.onerror = (err) => {
+        console.error('WS error:', err);
     };
 
     // Heartbeat
@@ -285,11 +291,11 @@ async function startChecker() {
     const keyword = document.getElementById('keyword').value.trim();
 
     if (!fileInput.files.length) {
-        alert('Válassz egy combo fájlt!');
+        alert('❌ Válassz egy combo fájlt!');
         return;
     }
     if (!keyword) {
-        alert('Írd be a keywordöt!');
+        alert('❌ Írd be a keywordöt!');
         return;
     }
 
@@ -322,13 +328,13 @@ async function startChecker() {
         });
         const json = await res.json();
         if (json.error) {
-            alert(json.error);
+            alert('❌ ' + json.error);
             document.getElementById('startBtn').disabled = false;
             document.getElementById('startBtn')
                 .textContent = '🚀 START';
         }
     } catch(err) {
-        alert('Hiba: ' + err);
+        alert('❌ Hiba: ' + err);
         document.getElementById('startBtn').disabled = false;
         document.getElementById('startBtn')
             .textContent = '🚀 START';
