@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Hotmail Inboxer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dashboard-bg">
+    
+    <!-- HEADER -->
+    <header class="sticky top-0 z-50 backdrop-blur-lg bg-black/30 border-b border-white/10">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="text-3xl">⚡</div>
+                <div>
+                    <h1 class="text-xl font-black text-white">Hotmail Inboxer</h1>
+                    <p class="text-xs text-white/60">Multi-User Dashboard</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-sm text-white/80">
+                    <span class="text-white/50">👤</span>
+                    <span id="userEmail" class="font-semibold">Loading...</span>
+                </div>
+                <button onclick="logout()" 
+                    class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 
+                    text-red-300 rounded-lg transition text-sm font-semibold">
+                    🚪 Kilépés
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- UPLOAD CARD -->
+        <div class="glass-card rounded-2xl p-8 mb-8 animate-fade-in">
+            <h2 class="text-2xl font-black text-white mb-6 flex items-center gap-2">
+                <span>🚀</span>
+                <span>Új Checker Indítása</span>
+            </h2>
+            
+            <form id="checkerForm" class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                <div>
+                    <label class="block text-white/80 text-sm mb-2 font-semibold">
+                        📁 Combo fájl (.txt)
+                    </label>
+                    <input type="file" id="comboFile" accept=".txt" required
+                        class="file-input">
+                    <p class="text-xs text-white/40 mt-1">
+                        Formátum: email:jelszó (soronként)
+                    </p>
+                </div>
+                
+                <div>
+                    <label class="block text-white/80 text-sm mb-2 font-semibold">
+                        🔍 Keresett keyword
+                    </label>
+                    <input type="text" id="keyword" required
+                        placeholder="pl. netflix, spotify, playstation..."
+                        class="glass-input">
+                    <p class="text-xs text-white/40 mt-1">
+                        Mit keressünk a levelekben?
+                    </p>
+                </div>
+                
+                <div>
+                    <button type="submit" id="startBtn" class="glass-button w-full">
+                        <span>⚡ START CHECKER</span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- PROGRESS (hidden by default) -->
+            <div id="progressWrap" class="mt-6 hidden">
+                <div class="flex justify-between text-sm text-white/60 mb-2">
+                    <span>⏳ Haladás</span>
+                    <span id="progressText">0 / 0</span>
+                </div>
+                <div class="w-full bg-white/10 rounded-full h-4 overflow-hidden backdrop-blur-sm">
+                    <div id="progressBar" 
+                        class="progress-bar h-full rounded-full transition-all duration-500" 
+                        style="width: 0%">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATS CARDS -->
+        <div id="statsWrap" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 hidden">
+            <div class="stat-card stat-hit">
+                <div class="stat-value" id="statHits">0</div>
+                <div class="stat-label">✅ HITS</div>
+            </div>
+            <div class="stat-card stat-custom">
+                <div class="stat-value" id="statCustom">0</div>
+                <div class="stat-label">📋 CUSTOM</div>
+            </div>
+            <div class="stat-card stat-bad">
+                <div class="stat-value" id="statBad">0</div>
+                <div class="stat-label">❌ BAD</div>
+            </div>
+            <div class="stat-card stat-retry">
+                <div class="stat-value" id="statRetry">0</div>
+                <div class="stat-label">🔄 RETRIES</div>
+            </div>
+        </div>
+
+        <!-- DOWNLOAD BUTTONS (hidden initially) -->
+        <div id="downloadWrap" class="flex gap-4 mb-8 hidden">
+            <button onclick="downloadResults('hits')" 
+                class="flex-1 download-btn download-hit">
+                <span>⬇️</span>
+                <span>Hits letöltése</span>
+                <span id="hitsCount" class="ml-2 opacity-60">(0)</span>
+            </button>
+            <button onclick="downloadResults('custom')" 
+                class="flex-1 download-btn download-custom">
+                <span>⬇️</span>
+                <span>Custom letöltése</span>
+                <span id="customCount" class="ml-2 opacity-60">(0)</span>
+            </button>
+        </div>
+
+        <!-- LIVE LOG -->
+        <div class="glass-card rounded-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 
+                        border-b border-white/10 bg-black/20">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">📜</span>
+                    <span class="text-white font-bold">Live Log</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="logCount" class="text-xs text-white/40">
+                        0 sor
+                    </span>
+                    <button onclick="clearLog()" 
+                        class="text-xs px-3 py-1 bg-white/5 hover:bg-white/10 
+                        text-white/60 rounded-lg transition">
+                        🗑️ Törlés
+                    </button>
+                </div>
+            </div>
+            <div id="logBox" 
+                 class="h-[500px] overflow-y-auto p-4 font-mono text-sm space-y-1
+                 bg-black/40">
+                <div class="text-white/30 text-center py-20 text-base">
+                    <div class="text-4xl mb-4">💤</div>
+                    <p>Indítsd el a checkert a logok megjelenítéséhez...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTORY -->
+        <div class="glass-card rounded-2xl p-8 mt-8">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-black text-white flex items-center gap-2">
+                    <span>📊</span>
+                    <span>Korábbi Futtatások</span>
+                </h2>
+                <button onclick="loadHistory()" 
+                    class="px-4 py-2 bg-white/5 hover:bg-white/10 
+                    text-white/80 rounded-lg transition text-sm">
+                    🔄 Frissítés
+                </button>
+            </div>
+            <div id="historyList" class="space-y-3">
+                <div class="text-white/40 text-center py-10">
+                    Betöltés...
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- SCRIPTS -->
+    <script>
+        let ws = null;
+        let logCount = 0;
+        let started = false;
+        let currentRunId = null;
+        const token = localStorage.getItem('token');
+        const email = localStorage.getItem('email');
+
+        // Auth check
+        if (!token || !email) {
+            window.location.href = '/';
+        }
+
+        // Load user info
+        document.getElementById('userEmail').textContent = email;
+
+        // WebSocket connection
+        function connectWS() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${location.host}/ws?token=${token}`);
+
+            ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+            };
+
+            ws.onmessage = (e) => {
+                if (e.data === 'pong') return;
+                try {
+                    const data = JSON.parse(e.data);
+                    handleMessage(data);
+                } catch(err) {
+                    console.error('WS parse error', err);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('❌ WS disconnected, reconnecting...');
+                setTimeout(connectWS, 2000);
+            };
+
+            ws.onerror = (err) => {
+                console.error('WS error:', err);
+            };
+
+            // Heartbeat
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('ping');
+                }
+            }, 30000);
+        }
+
+        function handleMessage(data) {
+            if (data.type === 'stats') {
+                document.getElementById('statHits').textContent = data.hits;
+                document.getElementById('statCustom').textContent = data.custom;
+                document.getElementById('statBad').textContent = data.bad;
+                document.getElementById('statRetry').textContent = data.retries;
+
+                if (data.total > 0) {
+                    const pct = Math.round((data.checked / data.total) * 100);
+                    document.getElementById('progressBar').style.width = pct + '%';
+                    document.getElementById('progressText').textContent = 
+                        `${data.checked} / ${data.total} (${pct}%)`;
+                }
+
+                currentRunId = data.run_id;
+            }
+            else if (data.type === 'log') {
+                addLog(data.text, data.level);
+            }
+            else if (data.type === 'finished') {
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('startBtn').innerHTML = '<span>⚡ START CHECKER</span>';
+                document.getElementById('downloadWrap').classList.remove('hidden');
+                
+                const hits = parseInt(document.getElementById('statHits').textContent);
+                const custom = parseInt(document.getElementById('statCustom').textContent);
+                document.getElementById('hitsCount').textContent = `(${hits})`;
+                document.getElementById('customCount').textContent = `(${custom})`;
+                
+                addLog('════════ KÉSZ ════════', 'finish');
+                loadHistory();
+            }
+            else if (data.type === 'active_run') {
+                // Oldal frissítés után visszaállítás
+                const run = data.run;
+                currentRunId = run._id;
+                
+                document.getElementById('statsWrap').classList.remove('hidden');
+                document.getElementById('progressWrap').classList.remove('hidden');
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('startBtn').innerHTML = 
+                    '<span class="loading"></span> Fut...';
+                
+                document.getElementById('statHits').textContent = run.hits;
+                document.getElementById('statCustom').textContent = run.custom;
+                document.getElementById('statBad').textContent = run.bad;
+                document.getElementById('statRetry').textContent = run.retries;
+                
+                const pct = Math.round((run.checked / run.total) * 100);
+                document.getElementById('progressBar').style.width = pct + '%';
+                document.getElementById('progressText').textContent = 
+                    `${run.checked} / ${run.total} (${pct}%)`;
+                
+                addLog(`[FOLYTATÁS] Checker fut... (${run.keyword})`, 'info');
+            }
+        }
+
+        function addLog(text, level) {
+            const box = document.getElementById('logBox');
+            if (!started) {
+                box.innerHTML = '';
+                started = true;
+            }
+
+            const div = document.createElement('div');
+            div.className = 'log-line animate-fade-in';
+
+            const colors = {
+                'hit':    'log-hit',
+                'custom': 'log-custom',
+                'bad':    'log-bad',
+                'info':   'log-info',
+                'finish': 'log-finish'
+            };
+
+            div.className += ' ' + (colors[level] || 'log-default');
+            
+            const time = new Date().toLocaleTimeString('hu-HU');
+            div.innerHTML = `<span class="log-time">[${time}]</span> ${text}`;
+            
+            box.appendChild(div);
+
+            logCount++;
+            document.getElementById('logCount').textContent = logCount + ' sor';
+
+            // Auto-scroll
+            box.scrollTop = box.scrollHeight;
+
+            // Max 2000 sor
+            while (box.children.length > 2000) {
+                box.removeChild(box.firstChild);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('logBox').innerHTML = 
+                '<div class="text-white/30 text-center py-20 text-base">' +
+                '<div class="text-4xl mb-4">💤</div>' +
+                '<p>Log törölve</p></div>';
+            logCount = 0;
+            started = false;
+            document.getElementById('logCount').textContent = '0 sor';
+        }
+
+        async function startChecker(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('comboFile');
+            const keyword = document.getElementById('keyword').value.trim();
+
+            if (!fileInput.files.length) {
+                alert('❌ Válassz egy combo fájlt!');
+                return;
+            }
+            if (!keyword) {
+                alert('❌ Írd be a keywordöt!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('keyword', keyword);
+
+            const btn = document.getElementById('startBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Indítás...';
+
+            document.getElementById('statsWrap').classList.remove('hidden');
+            document.getElementById('progressWrap').classList.remove('hidden');
+            document.getElementById('downloadWrap').classList.add('hidden');
+
+            // Reset
+            logCount = 0;
+            started = false;
+            document.getElementById('statHits').textContent = '0';
+            document.getElementById('statCustom').textContent = '0';
+            document.getElementById('statBad').textContent = '0';
+            document.getElementById('statRetry').textContent = '0';
+            document.getElementById('progressBar').style.width = '0%';
+
+            try {
+                const res = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    currentRunId = data.run_id;
+                    btn.innerHTML = '<span class="loading"></span> Fut...';
+                    addLog(`[START] ${data.total} combo betöltve! Keyword: ${keyword}`, 'info');
+                } else {
+                    alert('❌ ' + data.detail);
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>⚡ START CHECKER</span>';
+                }
+            } catch(err) {
+                alert('❌ Hiba: ' + err);
+                btn.disabled = false;
+                btn.innerHTML = '<span>⚡ START CHECKER</span>';
+            }
+        }
+
+        async function downloadResults(type) {
+            if (!currentRunId) {
+                alert('❌ Nincs aktív futtatás!');
+                return;
+            }
+
+            window.location.href = `/api/download/${currentRunId}/${type}`;
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/runs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const runs = await res.json();
+                
+                const container = document.getElementById('historyList');
+                
+                if (runs.length === 0) {
+                    container.innerHTML = 
+                        '<div class="text-white/40 text-center py-10">' +
+                        'Még nincs futtatásod</div>';
+                    return;
+                }
+
+                container.innerHTML = runs.map(run => {
+                    const status = run.status === 'running' ? 
+                        '<span class="status-running">🔄 Fut</span>' :
+                        '<span class="status-finished">✅ Kész</span>';
+                    
+                    const date = new Date(run.started_at).toLocaleString('hu-HU');
+                    
+                    return `
+                        <div class="history-item">
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        ${status}
+                                        <span class="text-white font-semibold">
+                                            Keyword: ${run.keyword}
+                                        </span>
+                                    </div>
+                                    <div class="text-sm text-white/50">
+                                        📅 ${date} • 
+                                        ${run.total} combo • 
+                                        ✅ ${run.hits} hit • 
+                                        📋 ${run.custom} custom
+                                    </div>
+                                </div>
+                                ${run.status === 'finished' && (run.hits > 0 || run.custom > 0) ? `
+                                    <div class="flex gap-2">
+                                        ${run.hits > 0 ? `
+                                            <a href="/api/download/${run._id}/hits"
+                                               class="mini-download-btn">
+                                                ⬇️ Hits
+                                            </a>
+                                        ` : ''}
+                                        ${run.custom > 0 ? `
+                                            <a href="/api/download/${run._id}/custom"
+                                               class="mini-download-btn">
+                                                ⬇️ Custom
+                                            </a>
+                                        ` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch(err) {
+                console.error('History load error:', err);
+            }
+        }
+
+        function logout() {
+            if (confirm('Biztosan kijelentkezel?')) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('email');
+                window.location.href = '/';
+            }
+        }
+
+        // Init
+        document.getElementById('checkerForm').addEventListener('submit', startChecker);
+        connectWS();
+        loadHistory();
+    </script>
+</body>
+</html>
