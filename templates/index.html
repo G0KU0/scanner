@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Hotmail Inboxer Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { background: #0f172a; color: #f1f5f9; }
+        .log-container { height: 400px; background: #020617; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 13px; }
+        .hit { color: #22c55e; } .custom { color: #3b82f6; } .bad { color: #ef4444; }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-6xl mx-auto">
+        <div class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+            <h1 class="text-3xl font-black text-blue-500 tracking-tighter">HOTMAIL <span class="text-white">WEB INBOXER</span></h1>
+            <div id="status" class="text-slate-400 text-sm italic">Készen áll...</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 text-center">
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div class="text-xs uppercase text-slate-500 font-bold">Hits</div>
+                <div id="h-count" class="text-2xl font-bold text-green-500">0</div>
+            </div>
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div class="text-xs uppercase text-slate-500 font-bold">Custom</div>
+                <div id="c-count" class="text-2xl font-bold text-blue-400">0</div>
+            </div>
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div class="text-xs uppercase text-slate-500 font-bold">Bad</div>
+                <div id="b-count" class="text-2xl font-bold text-red-500">0</div>
+            </div>
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <div class="text-xs uppercase text-slate-500 font-bold">Retries</div>
+                <div id="r-count" class="text-2xl font-bold text-yellow-500">0</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="space-y-4">
+                <textarea id="combo" class="w-full h-64 bg-slate-900 border border-slate-700 rounded-lg p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="email:password"></textarea>
+                <input type="text" id="key" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 outline-none" placeholder="Kulcsszó (pl: PayPal)">
+                <button onclick="run()" id="runBtn" class="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-lg font-black uppercase transition-all shadow-lg">Futtatás Indítása</button>
+            </div>
+
+            <div class="lg:col-span-2">
+                <div class="flex justify-between mb-2">
+                    <span class="text-xs font-bold uppercase text-slate-500">Élő Konzol</span>
+                    <div id="dl-area" class="hidden space-x-2">
+                        <button onclick="dl('hits')" class="text-xs text-green-500 underline">Hits Letöltése</button>
+                        <button onclick="dl('custom')" class="text-xs text-blue-500 underline">Custom Letöltése</button>
+                    </div>
+                </div>
+                <div id="logs" class="log-container rounded-lg p-4 border border-slate-800 shadow-inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let sid = '';
+        socket.on('connect', () => { sid = socket.id; });
+
+        function run() {
+            const combo = document.getElementById('combo').value;
+            const keyword = document.getElementById('key').value;
+            if(!combo || !keyword) return alert("Combo és Kulcsszó kötelező!");
+            
+            document.getElementById('runBtn').disabled = true;
+            document.getElementById('runBtn').classList.add('opacity-50');
+            document.getElementById('logs').innerHTML = '';
+            document.getElementById('status').innerText = "Keresés folyamatban...";
+            socket.emit('start_process', { combo, keyword });
+        }
+
+        socket.on('new_log', data => {
+            const div = document.createElement('div');
+            div.className = "mb-1 " + data.type;
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${data.msg}`;
+            const logs = document.getElementById('logs');
+            logs.prepend(div);
+        });
+
+        socket.on('stats_update', d => {
+            document.getElementById('h-count').innerText = d.hits;
+            document.getElementById('c-count').innerText = d.custom;
+            document.getElementById('b-count').innerText = d.bad;
+            document.getElementById('r-count').innerText = d.retries;
+        });
+
+        socket.on('finished', () => {
+            document.getElementById('runBtn').disabled = false;
+            document.getElementById('runBtn').classList.remove('opacity-50');
+            document.getElementById('dl-area').classList.remove('hidden');
+            document.getElementById('status').innerText = "Befejezve.";
+            alert("A keresés véget ért!");
+        });
+
+        function dl(t) { window.location.href = `/download/${t}/${sid}`; }
+    </script>
+</body>
+</html>
