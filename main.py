@@ -1,3 +1,8 @@
+"""
+Hotmail Inboxer - Multi-User Web App
+MongoDB + JWT Auth + Live WebSocket + Modern UI + SPEED CONTROL
+"""
+
 from fastapi import FastAPI, UploadFile, Form, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
@@ -19,7 +24,7 @@ from checker import checker_worker_single
 # ============================================================
 app = FastAPI(title="Hotmail Inboxer Multi-User")
 
-# CORS Middleware (SessionMiddleware TÖRLVE - nem kell JWT-hez)
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,7 +42,7 @@ user_connections = {}
 ws_lock = threading.Lock()
 
 # ============================================================
-# WEBSOCKET BROADCAST (csak adott usernek küld)
+# WEBSOCKET BROADCAST
 # ============================================================
 def broadcast_to_user(user_id: str, message: str):
     """Üzenet küldése egy adott user összes WebSocket kapcsolatának"""
@@ -54,11 +59,9 @@ def broadcast_to_user(user_id: str, message: str):
             except Exception:
                 dead.append(ws_info)
         
-        # Halott kapcsolatok törlése
         for d in dead:
             user_connections[user_id].remove(d)
         
-        # Ha nincs több kapcsolat, töröljük a user-t
         if not user_connections[user_id]:
             del user_connections[user_id]
 
@@ -67,17 +70,14 @@ def broadcast_to_user(user_id: str, message: str):
 # ============================================================
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """Login oldal"""
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    """Regisztráció oldal"""
     return templates.TemplateResponse("register.html", {"request": request})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Dashboard oldal (védett, de client-side ellenőrzés)"""
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 # ============================================================
@@ -85,15 +85,12 @@ async def dashboard_page(request: Request):
 # ============================================================
 @app.post("/api/register")
 async def register(email: str = Form(...), password: str = Form(...)):
-    """Regisztráció endpoint"""
-    # Jelszó hossz ellenőrzés
     if len(password) < 6:
         raise HTTPException(
             status_code=400,
             detail="A jelszónak legalább 6 karakter hosszúnak kell lennie"
         )
     
-    # Email létezés ellenőrzés
     existing = await get_user_by_email(email)
     if existing:
         raise HTTPException(
@@ -101,18 +98,14 @@ async def register(email: str = Form(...), password: str = Form(...)):
             detail="Ez az email már regisztrálva van"
         )
     
-    # User létrehozása
     hashed_pw = hash_password(password)
     user_id = await create_user(email, hashed_pw)
-    
-    # JWT token generálás
     token = create_access_token({"sub": email})
     
     return {"token": token, "email": email}
 
 @app.post("/api/login")
 async def login(email: str = Form(...), password: str = Form(...)):
-    """Bejelentkezés endpoint"""
     user = await get_user_by_email(email)
     
     if not user or not verify_password(password, user["password"]):
@@ -121,29 +114,28 @@ async def login(email: str = Form(...), password: str = Form(...)):
             detail="Hibás email vagy jelszó"
         )
     
-    # JWT token generálás
     token = create_access_token({"sub": email})
     return {"token": token, "email": email}
 
 @app.get("/api/me")
 async def get_current_user_info(current_user = Depends(get_current_user)):
-    """Bejelentkezett user adatai"""
     return {
         "email": current_user["email"],
         "created_at": current_user["created_at"].isoformat()
     }
 
 # ============================================================
-# CHECKER ROUTES
+# CHECKER ROUTES (ÚJ: SEBESSÉG PARAMÉTERREL)
 # ============================================================
 @app.post("/api/start")
 async def start_checker(
     file: UploadFile,
     keyword: str = Form(...),
+    speed: float = Form(0.3),  # ← ÚJ PARAMÉTER!
     current_user = Depends(get_current_user)
 ):
-    """Checker indítása"""
-    # Ellenőrizzük, nincs-e már futó checker
+    """Checker indítása (SEBESSÉG BEÁLLÍTÁSSAL)"""
+    # Aktív checker ellenőrzés
     active = await get_active_run(str(current_user["_id"]))
     if active:
         raise HTTPException(
@@ -151,16 +143,21 @@ async def start_checker(
             detail="Már fut egy checker! Várd meg, amíg befejeződik."
         )
     
+    # Sebesség validálás
+    if speed < 0.05:
+        speed = 0.05
+    elif speed > 5.0:
+        speed = 5.0
+    
     # Combo fájl beolvasása
     content = await file.read()
     combo_text = content.decode("utf-8", errors="ignore")
     
-    # Validálás: csak email:password sorok
+    # Validálás
     lines = []
     for line in combo_text.splitlines():
         line = line.strip()
         if ':' in line and '@' in line:
-            # Ellenőrizzük, hogy csak 1 db ":" van-e (email:pass)
             parts = line.split(':')
             if len(parts) == 2:
                 lines.append(line)
@@ -182,32 +179,32 @@ async def start_checker(
     # MongoDB-ben létrehozzuk a run-t
     run_id = await create_run(str(current_user["_id"]), keyword, total)
     
-    # Háttérben indítjuk a checker-t
+    # Háttérben indítjuk (SEBESSÉG PARAMÉTERREL)
     threading.Thread(
         target=run_checker_background,
-        args=(run_id, str(current_user["_id"]), lines, keyword),
+        args=(run_id, str(current_user["_id"]), lines, keyword, speed),  # ← speed
         daemon=True
     ).start()
     
-    return {"run_id": run_id, "total": total}
+    return {"run_id": run_id, "total": total, "speed": speed}
 
-def run_checker_background(run_id: str, user_id: str, lines: list, keyword: str):
-    """Háttérszál - új event loop-ot hoz létre"""
+def run_checker_background(run_id: str, user_id: str, lines: list, keyword: str, speed: float):
+    """Háttérszál - új event loop"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(execute_checker(run_id, user_id, lines, keyword))
+    loop.run_until_complete(execute_checker(run_id, user_id, lines, keyword, speed))
     loop.close()
 
-async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str):
-    """Checker futtatás (async)"""
+async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, speed: float = 0.3):
+    """Checker futtatás (DINAMIKUS SEBESSÉGGEL)"""
     checked = hits = custom = bad = retries = 0
     total = len(lines)
     
-    # Kezdő log
+    # Kezdő log (sebesség kiírással)
     broadcast_to_user(user_id, json.dumps({
         "type": "log",
         "level": "info",
-        "text": f"[START] {total} fiók betöltve | Keyword: {keyword}"
+        "text": f"[START] {total} fiók betöltve | Keyword: {keyword} | Sebesség: {speed}s/account"
     }))
     
     for line in lines:
@@ -219,7 +216,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str):
         except:
             continue
         
-        # Checker hívás (szinkron függvény async thread-ben)
+        # Checker hívás
         result = await asyncio.to_thread(checker_worker_single, email, password, keyword)
         
         checked += 1
@@ -264,10 +261,10 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str):
                 "text": f"[BAD] {email}"
             }))
             
-        else:  # error
+        else:
             retries += 1
         
-        # Stats frissítése MongoDB-ben
+        # Stats frissítése
         await update_run_stats(run_id, {
             "checked": checked,
             "hits": hits,
@@ -288,8 +285,8 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str):
             "total": total
         }))
         
-        # Rate limit (Microsoft anti-ban)
-        await asyncio.sleep(0.35)
+        # DINAMIKUS SEBESSÉG (user által beállított)
+        await asyncio.sleep(speed)  # ← EZ A KULCS!
     
     # Futtatás lezárása
     await finish_run(run_id)
@@ -310,10 +307,8 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str):
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
-    """User összes futtatásának lekérése"""
     runs = await get_user_runs(str(current_user["_id"]))
     
-    # ObjectId -> string konverzió + dátumok ISO formátumra
     for run in runs:
         run["_id"] = str(run["_id"])
         run["started_at"] = run["started_at"].isoformat()
@@ -324,7 +319,6 @@ async def get_user_runs_list(current_user = Depends(get_current_user)):
 
 @app.get("/api/run/{run_id}")
 async def get_run_details(run_id: str, current_user = Depends(get_current_user)):
-    """Egy futtatás részletes adatai"""
     run = await get_run(run_id)
     
     if not run or run["user_id"] != str(current_user["_id"]):
@@ -340,10 +334,9 @@ async def get_run_details(run_id: str, current_user = Depends(get_current_user))
 @app.get("/api/download/{run_id}/{type}")
 async def download_results(
     run_id: str,
-    type: str,  # "hits" vagy "custom"
+    type: str,
     current_user = Depends(get_current_user)
 ):
-    """Eredmények letöltése TXT formában"""
     run = await get_run(run_id)
     
     if not run or run["user_id"] != str(current_user["_id"]):
@@ -356,7 +349,7 @@ async def download_results(
         lines = run.get("custom_lines", [])
         filename = f"Hotmail-Custom-{run_id}.txt"
     else:
-        raise HTTPException(status_code=400, detail="Érvénytelen típus (hits vagy custom)")
+        raise HTTPException(status_code=400, detail="Érvénytelen típus")
     
     content = "\n".join(lines) if lines else "Nincs eredmény"
     
@@ -368,14 +361,12 @@ async def download_results(
     )
 
 # ============================================================
-# WEBSOCKET ENDPOINT
+# WEBSOCKET
 # ============================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
-    """WebSocket kapcsolat (live updates)"""
     await websocket.accept()
     
-    # Token validálás
     email = decode_token(token)
     if not email:
         await websocket.close(code=1008, reason="Invalid token")
@@ -388,7 +379,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     
     user_id = str(user["_id"])
     
-    # WebSocket regisztrálása
     loop = asyncio.get_event_loop()
     ws_info = {"ws": websocket, "loop": loop}
     
@@ -397,7 +387,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
     
-    # Ha van aktív futtatás, küldjük el az állapotot (oldal frissítés után folytatás)
     active_run = await get_active_run(user_id)
     if active_run:
         active_run["_id"] = str(active_run["_id"])
@@ -407,14 +396,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             "run": active_run
         }))
     
-    # Heartbeat loop
     try:
         while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        # Kapcsolat bontása
         with ws_lock:
             if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
@@ -430,9 +417,10 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("  🚀 Hotmail Inboxer - Multi-User Edition")
+    print("  🚀 Hotmail Inboxer - Multi-User Edition v2")
     print(f"  📡 http://0.0.0.0:{port}")
     print(f"  🔐 MongoDB: Configured")
+    print(f"  ⚡ Speed Control: ENABLED")
     print("="*60 + "\n")
     
     uvicorn.run(
