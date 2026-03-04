@@ -1,6 +1,6 @@
-flask
-flask-socketio
+fastapi
+uvicorn
+python-multipart
 requests
 user-agent
-eventlet
-gunicorn
+jinja2
