@@ -11,8 +11,20 @@ import time
 import os
 import asyncio
 from queue import Queue
-from user_agent import generate_user_agent
 from datetime import datetime
+
+# ============================================================
+# FIX: Fake UserAgent (stabíl verzió)
+# ============================================================
+try:
+    from fake_useragent import UserAgent
+    _ua = UserAgent()
+    def generate_user_agent():
+        return _ua.random
+except:
+    # Fallback ha még az sem megy
+    def generate_user_agent():
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # ============================================================
 # FASTAPI SETUP
@@ -41,7 +53,7 @@ checker_thread = None
 ws_clients = []
 ws_lock = threading.Lock()
 
-# Eredmény sorok tárolása (hogy a weben is megjelenjenek)
+# Eredmény sorok tárolása
 hit_lines = []
 custom_lines = []
 log_lines = []
@@ -591,7 +603,7 @@ def checker_worker(combo_queue: Queue, keyword: str):
                 combo_queue.task_done()
                 break
 
-            except Exception:
+            except Exception as e:
                 retries += 1
                 with lock:
                     anasWhite += 1
@@ -744,10 +756,25 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # ============================================================
-# INDÍTÁS
+# INDÍTÁS (RENDER.COM READY)
 # ============================================================
 if __name__ == "__main__":
     import uvicorn
-    print("\n  Hotmail Inboxer WEB")
-    print("  http://localhost:8000\n")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    
+    # Port beállítás (Render.com-hoz)
+    port = int(os.environ.get("PORT", 8000))
+    
+    print(f"\n{'='*50}")
+    print(f"  🚀 Hotmail Inboxer WEB")
+    print(f"  📡 http://0.0.0.0:{port}")
+    print(f"{'='*50}\n")
+    
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,  # Render-en ne reload!
+        ws_ping_interval=30,
+        ws_ping_timeout=30,
+        log_level="info"
+    )
