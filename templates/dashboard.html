@@ -16,7 +16,7 @@
                 <div class="text-3xl">⚡</div>
                 <div>
                     <h1 class="text-xl font-black text-white">Hotmail Inboxer</h1>
-                    <p class="text-xs text-white/60">Multi-User Dashboard v2</p>
+                    <p class="text-xs text-white/60">Multi-User Dashboard v3</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -44,19 +44,14 @@
             
             <form id="checkerForm" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <!-- COMBO FÁJL -->
                     <div>
                         <label class="block text-white/80 text-sm mb-2 font-semibold">
                             📁 Combo fájl (.txt)
                         </label>
-                        <input type="file" id="comboFile" accept=".txt" required
-                            class="file-input">
-                        <p class="text-xs text-white/40 mt-1">
-                            Formátum: email:jelszó (soronként)
-                        </p>
+                        <input type="file" id="comboFile" accept=".txt" required class="file-input">
+                        <p class="text-xs text-white/40 mt-1">Formátum: email:jelszó</p>
                     </div>
                     
-                    <!-- KEYWORD -->
                     <div>
                         <label class="block text-white/80 text-sm mb-2 font-semibold">
                             🔍 Keresett keyword
@@ -64,18 +59,15 @@
                         <input type="text" id="keyword" required
                             placeholder="netflix, spotify, playstation..."
                             class="glass-input">
-                        <p class="text-xs text-white/40 mt-1">
-                            Mit keressünk a levelekben?
-                        </p>
+                        <p class="text-xs text-white/40 mt-1">Mit keressünk?</p>
                     </div>
                     
-                    <!-- SEBESSÉG (ÚJ!) -->
                     <div>
                         <label class="block text-white/80 text-sm mb-2 font-semibold">
                             ⚡ Sebesség
                         </label>
                         <select id="speed" class="glass-input cursor-pointer">
-                            <option value="0.05">🔴 Ultra gyors (0.05s) - KOCKÁZATOS</option>
+                            <option value="0.05">🔴 Ultra gyors (0.05s)</option>
                             <option value="0.1">🟠 Nagyon gyors (0.1s)</option>
                             <option value="0.15">🟡 Gyors (0.15s)</option>
                             <option value="0.2">🟡 Közepes-gyors (0.2s)</option>
@@ -83,20 +75,24 @@
                             <option value="0.35">🟢 Biztonságos (0.35s)</option>
                             <option value="0.5">🟢 Nagyon biztos (0.5s)</option>
                             <option value="1.0">🔵 Lassú (1.0s)</option>
-                            <option value="2.0">🔵 Ultra lassú (2.0s)</option>
                         </select>
-                        <p class="text-xs text-white/40 mt-1" id="speedInfo">
-                            ~180 account/perc
-                        </p>
+                        <p class="text-xs text-white/40 mt-1" id="speedInfo">~180 account/perc</p>
                     </div>
                 </div>
 
-                <button type="submit" id="startBtn" class="glass-button w-full">
-                    <span>⚡ START CHECKER</span>
-                </button>
+                <div class="flex gap-4">
+                    <button type="submit" id="startBtn" class="glass-button flex-1">
+                        <span>⚡ START CHECKER</span>
+                    </button>
+                    <button type="button" id="stopBtn" onclick="stopChecker()" 
+                        class="hidden px-8 py-3 bg-red-600/20 hover:bg-red-600/30 
+                        border border-red-500 text-red-300 rounded-xl font-bold transition">
+                        ⏹️ STOP
+                    </button>
+                </div>
             </form>
 
-            <!-- PROGRESS (hidden by default) -->
+            <!-- PROGRESS -->
             <div id="progressWrap" class="mt-6 hidden">
                 <div class="flex justify-between text-sm text-white/60 mb-2">
                     <span>⏳ Haladás</span>
@@ -111,15 +107,17 @@
             </div>
         </div>
 
-        <!-- STATS CARDS -->
+        <!-- STATS -->
         <div id="statsWrap" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 hidden">
-            <div class="stat-card stat-hit">
+            <div class="stat-card stat-hit cursor-pointer" onclick="togglePreview('hits')">
                 <div class="stat-value" id="statHits">0</div>
                 <div class="stat-label">✅ HITS</div>
+                <div class="text-xs text-white/40 mt-1">Kattints a megtekintéshez</div>
             </div>
-            <div class="stat-card stat-custom">
+            <div class="stat-card stat-custom cursor-pointer" onclick="togglePreview('custom')">
                 <div class="stat-value" id="statCustom">0</div>
                 <div class="stat-label">📋 CUSTOM</div>
+                <div class="text-xs text-white/40 mt-1">Kattints a megtekintéshez</div>
             </div>
             <div class="stat-card stat-bad">
                 <div class="stat-value" id="statBad">0</div>
@@ -131,7 +129,29 @@
             </div>
         </div>
 
-        <!-- DOWNLOAD BUTTONS (hidden initially) -->
+        <!-- LIVE PREVIEW (ÚJ!) -->
+        <div id="livePreview" class="glass-card rounded-2xl overflow-hidden mb-8 hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">👁️</span>
+                    <span class="text-white font-bold" id="previewTitle">Live Hits</span>
+                    <span class="text-xs text-white/40" id="previewCount">(0)</span>
+                </div>
+                <button onclick="togglePreview(null)" 
+                    class="text-xs px-3 py-1 bg-white/5 hover:bg-white/10 
+                    text-white/60 rounded-lg transition">
+                    ✕ Bezár
+                </button>
+            </div>
+            <div id="previewBox" 
+                 class="h-[400px] overflow-y-auto p-4 font-mono text-sm space-y-2 bg-black/40">
+                <div class="text-white/30 text-center py-20">
+                    Még nincs találat...
+                </div>
+            </div>
+        </div>
+
+        <!-- DOWNLOAD BUTTONS -->
         <div id="downloadWrap" class="flex gap-4 mb-8 hidden">
             <button onclick="downloadResults('hits')" 
                 class="flex-1 download-btn download-hit">
@@ -149,16 +169,13 @@
 
         <!-- LIVE LOG -->
         <div class="glass-card rounded-2xl overflow-hidden">
-            <div class="flex items-center justify-between px-6 py-4 
-                        border-b border-white/10 bg-black/20">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
                 <div class="flex items-center gap-2">
                     <span class="text-lg">📜</span>
                     <span class="text-white font-bold">Live Log</span>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span id="logCount" class="text-xs text-white/40">
-                        0 sor
-                    </span>
+                    <span id="logCount" class="text-xs text-white/40">0 sor</span>
                     <button onclick="clearLog()" 
                         class="text-xs px-3 py-1 bg-white/5 hover:bg-white/10 
                         text-white/60 rounded-lg transition">
@@ -167,11 +184,10 @@
                 </div>
             </div>
             <div id="logBox" 
-                 class="h-[500px] overflow-y-auto p-4 font-mono text-sm space-y-1
-                 bg-black/40">
+                 class="h-[500px] overflow-y-auto p-4 font-mono text-sm space-y-1 bg-black/40">
                 <div class="text-white/30 text-center py-20 text-base">
                     <div class="text-4xl mb-4">💤</div>
-                    <p>Indítsd el a checkert a logok megjelenítéséhez...</p>
+                    <p>Indítsd el a checkert...</p>
                 </div>
             </div>
         </div>
@@ -190,9 +206,7 @@
                 </button>
             </div>
             <div id="historyList" class="space-y-3">
-                <div class="text-white/40 text-center py-10">
-                    Betöltés...
-                </div>
+                <div class="text-white/40 text-center py-10">Betöltés...</div>
             </div>
         </div>
 
@@ -207,15 +221,18 @@
         const token = localStorage.getItem('token');
         const email = localStorage.getItem('email');
 
-        // Auth check
+        // Live preview adatok
+        let liveHits = [];
+        let liveCustom = [];
+        let currentPreview = null;
+
         if (!token || !email) {
             window.location.href = '/';
         }
 
-        // Load user info
         document.getElementById('userEmail').textContent = email;
 
-        // Sebesség megjelenítés frissítése
+        // Sebesség kalkulátor
         document.getElementById('speed').addEventListener('change', function() {
             const speed = parseFloat(this.value);
             const accountsPerMin = Math.round(60 / speed);
@@ -223,18 +240,14 @@
             document.getElementById('speedInfo').textContent = 
                 `~${accountsPerMin} account/perc (~${accountsPerHour.toLocaleString()}/óra)`;
         });
-
-        // Kezdő érték beállítása
         document.getElementById('speed').dispatchEvent(new Event('change'));
 
-        // WebSocket connection
+        // WebSocket
         function connectWS() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${location.host}/ws?token=${token}`);
 
-            ws.onopen = () => {
-                console.log('✅ WebSocket connected');
-            };
+            ws.onopen = () => console.log('✅ WebSocket connected');
 
             ws.onmessage = (e) => {
                 if (e.data === 'pong') return;
@@ -251,11 +264,6 @@
                 setTimeout(connectWS, 2000);
             };
 
-            ws.onerror = (err) => {
-                console.error('WS error:', err);
-            };
-
-            // Heartbeat
             setInterval(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send('ping');
@@ -282,9 +290,24 @@
             else if (data.type === 'log') {
                 addLog(data.text, data.level);
             }
+            else if (data.type === 'live_hit') {
+                // LIVE HIT hozzáadása
+                liveHits.push(data.data);
+                if (currentPreview === 'hits') {
+                    updatePreview('hits');
+                }
+            }
+            else if (data.type === 'live_custom') {
+                // LIVE CUSTOM hozzáadása
+                liveCustom.push(data.data);
+                if (currentPreview === 'custom') {
+                    updatePreview('custom');
+                }
+            }
             else if (data.type === 'finished') {
                 document.getElementById('startBtn').disabled = false;
                 document.getElementById('startBtn').innerHTML = '<span>⚡ START CHECKER</span>';
+                document.getElementById('stopBtn').classList.add('hidden');
                 document.getElementById('downloadWrap').classList.remove('hidden');
                 
                 const hits = parseInt(document.getElementById('statHits').textContent);
@@ -295,16 +318,24 @@
                 addLog('════════ KÉSZ ════════', 'finish');
                 loadHistory();
             }
+            else if (data.type === 'stopped') {
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('startBtn').innerHTML = '<span>⚡ START CHECKER</span>';
+                document.getElementById('stopBtn').classList.add('hidden');
+                document.getElementById('downloadWrap').classList.remove('hidden');
+                
+                addLog('════════ LEÁLLÍTVA ════════', 'finish');
+                loadHistory();
+            }
             else if (data.type === 'active_run') {
-                // Oldal frissítés után visszaállítás
                 const run = data.run;
                 currentRunId = run._id;
                 
                 document.getElementById('statsWrap').classList.remove('hidden');
                 document.getElementById('progressWrap').classList.remove('hidden');
                 document.getElementById('startBtn').disabled = true;
-                document.getElementById('startBtn').innerHTML = 
-                    '<span class="loading"></span> Fut...';
+                document.getElementById('startBtn').innerHTML = '<span class="loading"></span> Fut...';
+                document.getElementById('stopBtn').classList.remove('hidden');
                 
                 document.getElementById('statHits').textContent = run.hits;
                 document.getElementById('statCustom').textContent = run.custom;
@@ -331,10 +362,10 @@
             div.className = 'log-line animate-fade-in';
 
             const colors = {
-                'hit':    'log-hit',
+                'hit': 'log-hit',
                 'custom': 'log-custom',
-                'bad':    'log-bad',
-                'info':   'log-info',
+                'bad': 'log-bad',
+                'info': 'log-info',
                 'finish': 'log-finish'
             };
 
@@ -348,10 +379,8 @@
             logCount++;
             document.getElementById('logCount').textContent = logCount + ' sor';
 
-            // Auto-scroll
             box.scrollTop = box.scrollHeight;
 
-            // Max 2000 sor
             while (box.children.length > 2000) {
                 box.removeChild(box.firstChild);
             }
@@ -360,11 +389,75 @@
         function clearLog() {
             document.getElementById('logBox').innerHTML = 
                 '<div class="text-white/30 text-center py-20 text-base">' +
-                '<div class="text-4xl mb-4">💤</div>' +
-                '<p>Log törölve</p></div>';
+                '<div class="text-4xl mb-4">💤</div><p>Log törölve</p></div>';
             logCount = 0;
             started = false;
             document.getElementById('logCount').textContent = '0 sor';
+        }
+
+        // PREVIEW FUNKCIÓK
+        function togglePreview(type) {
+            const preview = document.getElementById('livePreview');
+            
+            if (type === null || currentPreview === type) {
+                preview.classList.add('hidden');
+                currentPreview = null;
+                return;
+            }
+
+            currentPreview = type;
+            preview.classList.remove('hidden');
+            updatePreview(type);
+        }
+
+        function updatePreview(type) {
+            const box = document.getElementById('previewBox');
+            const title = document.getElementById('previewTitle');
+            const count = document.getElementById('previewCount');
+            
+            const data = type === 'hits' ? liveHits : liveCustom;
+            
+            title.textContent = type === 'hits' ? '✅ Live Hits' : '📋 Live Custom';
+            count.textContent = `(${data.length})`;
+            
+            if (data.length === 0) {
+                box.innerHTML = '<div class="text-white/30 text-center py-20">Még nincs találat...</div>';
+                return;
+            }
+
+            box.innerHTML = data.map((item, index) => {
+                if (type === 'hits') {
+                    return `
+                        <div class="p-3 bg-green-500/10 border border-green-500/30 rounded-lg animate-fade-in">
+                            <div class="text-green-400 font-bold mb-1">
+                                #${index + 1} • ${item.email}:${item.password}
+                            </div>
+                            <div class="text-xs text-white/60">
+                                📍 ${item.country || 'N/A'} | 
+                                👤 ${item.name || 'N/A'} | 
+                                📅 ${item.birthdate || 'N/A'} | 
+                                📧 ${item.mails} emails | 
+                                🕐 ${item.date || 'N/A'}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg animate-fade-in">
+                            <div class="text-cyan-400 font-bold mb-1">
+                                #${index + 1} • ${item.email}:${item.password}
+                            </div>
+                            <div class="text-xs text-white/60">
+                                📍 ${item.country || 'N/A'} | 
+                                👤 ${item.name || 'N/A'} | 
+                                📅 ${item.birthdate || 'N/A'}
+                            </div>
+                        </div>
+                    `;
+                }
+            }).reverse().join('');
+
+            box.scrollTop = 0;
         }
 
         async function startChecker(e) {
@@ -395,10 +488,15 @@
             document.getElementById('statsWrap').classList.remove('hidden');
             document.getElementById('progressWrap').classList.remove('hidden');
             document.getElementById('downloadWrap').classList.add('hidden');
+            document.getElementById('stopBtn').classList.remove('hidden');
 
             // Reset
             logCount = 0;
             started = false;
+            liveHits = [];
+            liveCustom = [];
+            currentPreview = null;
+            document.getElementById('livePreview').classList.add('hidden');
             document.getElementById('statHits').textContent = '0';
             document.getElementById('statCustom').textContent = '0';
             document.getElementById('statBad').textContent = '0';
@@ -408,9 +506,7 @@
             try {
                 const res = await fetch('/api/start', {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    },
+                    headers: {'Authorization': `Bearer ${token}`},
                     body: formData
                 });
                 
@@ -419,16 +515,37 @@
                 if (res.ok) {
                     currentRunId = data.run_id;
                     btn.innerHTML = '<span class="loading"></span> Fut...';
-                    addLog(`[START] ${data.total} combo | Keyword: ${keyword} | Sebesség: ${data.speed}s/account`, 'info');
+                    addLog(`[START] ${data.total} combo | Keyword: ${keyword} | Sebesség: ${data.speed}s`, 'info');
                 } else {
                     alert('❌ ' + data.detail);
                     btn.disabled = false;
                     btn.innerHTML = '<span>⚡ START CHECKER</span>';
+                    document.getElementById('stopBtn').classList.add('hidden');
                 }
             } catch(err) {
                 alert('❌ Hiba: ' + err);
                 btn.disabled = false;
                 btn.innerHTML = '<span>⚡ START CHECKER</span>';
+                document.getElementById('stopBtn').classList.add('hidden');
+            }
+        }
+
+        async function stopChecker() {
+            if (!confirm('Biztosan leállítod a checkert?')) return;
+
+            try {
+                const res = await fetch('/api/stop', {
+                    method: 'POST',
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+
+                if (res.ok) {
+                    addLog('[LEÁLLÍTÁS] Várj, leállítás folyamatban...', 'info');
+                } else {
+                    alert('❌ Nem sikerült leállítani');
+                }
+            } catch(err) {
+                alert('❌ Hiba: ' + err);
             }
         }
 
@@ -444,9 +561,7 @@
         async function loadHistory() {
             try {
                 const res = await fetch('/api/runs', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                    headers: {'Authorization': `Bearer ${token}`}
                 });
                 const runs = await res.json();
                 
@@ -454,8 +569,7 @@
                 
                 if (runs.length === 0) {
                     container.innerHTML = 
-                        '<div class="text-white/40 text-center py-10">' +
-                        'Még nincs futtatásod</div>';
+                        '<div class="text-white/40 text-center py-10">Még nincs futtatásod</div>';
                     return;
                 }
 
@@ -472,28 +586,22 @@
                                 <div class="flex-1">
                                     <div class="flex items-center gap-3 mb-2">
                                         ${status}
-                                        <span class="text-white font-semibold">
-                                            Keyword: ${run.keyword}
-                                        </span>
+                                        <span class="text-white font-semibold">Keyword: ${run.keyword}</span>
                                     </div>
                                     <div class="text-sm text-white/50">
-                                        📅 ${date} • 
-                                        ${run.total} combo • 
-                                        ✅ ${run.hits} hit • 
-                                        📋 ${run.custom} custom
+                                        📅 ${date} • ${run.total} combo • 
+                                        ✅ ${run.hits} hit • 📋 ${run.custom} custom
                                     </div>
                                 </div>
                                 ${run.status === 'finished' && (run.hits > 0 || run.custom > 0) ? `
                                     <div class="flex gap-2">
                                         ${run.hits > 0 ? `
-                                            <a href="/api/download/${run._id}/hits"
-                                               class="mini-download-btn">
+                                            <a href="/api/download/${run._id}/hits" class="mini-download-btn">
                                                 ⬇️ Hits
                                             </a>
                                         ` : ''}
                                         ${run.custom > 0 ? `
-                                            <a href="/api/download/${run._id}/custom"
-                                               class="mini-download-btn">
+                                            <a href="/api/download/${run._id}/custom" class="mini-download-btn">
                                                 ⬇️ Custom
                                             </a>
                                         ` : ''}
