@@ -2,102 +2,112 @@
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
-    <title>Hotmail Inboxer Pro</title>
+    <title>Hotmail Inboxer Web</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
-        body { background: #0f172a; color: #f1f5f9; }
-        .log-container { height: 400px; background: #020617; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 13px; }
-        .hit { color: #22c55e; } .custom { color: #3b82f6; } .bad { color: #ef4444; }
+        body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .log-box { height: 450px; background: #020617; border: 1px solid #1e293b; overflow-y: auto; font-family: monospace; }
+        .hit { color: #4ade80; font-weight: bold; }
+        .custom { color: #38bdf8; }
+        .bad { color: #f87171; }
     </style>
 </head>
-<body class="p-8">
+<body class="p-4 md:p-12">
     <div class="max-w-6xl mx-auto">
-        <div class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
-            <h1 class="text-3xl font-black text-blue-500 tracking-tighter">HOTMAIL <span class="text-white">WEB INBOXER</span></h1>
-            <div id="status" class="text-slate-400 text-sm italic">Készen áll...</div>
-        </div>
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-black text-blue-500 tracking-tighter italic">HOTMAIL CLOUD <span class="text-white not-italic">V2</span></h1>
+            <div id="status" class="px-4 py-1 bg-slate-800 rounded-full text-xs text-slate-400">Szerver: Online</div>
+        </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 text-center">
-            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
-                <div class="text-xs uppercase text-slate-500 font-bold">Hits</div>
-                <div id="h-count" class="text-2xl font-bold text-green-500">0</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <p class="text-xs text-slate-500 uppercase font-bold">Találat (Hits)</p>
+                <p id="h-num" class="text-3xl font-bold text-green-400">0</p>
             </div>
-            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
-                <div class="text-xs uppercase text-slate-500 font-bold">Custom</div>
-                <div id="c-count" class="text-2xl font-bold text-blue-400">0</div>
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <p class="text-xs text-slate-500 uppercase font-bold">Egyedi (Custom)</p>
+                <p id="c-num" class="text-3xl font-bold text-sky-400">0</p>
             </div>
-            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
-                <div class="text-xs uppercase text-slate-500 font-bold">Bad</div>
-                <div id="b-count" class="text-2xl font-bold text-red-500">0</div>
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <p class="text-xs text-slate-500 uppercase font-bold">Hibás (Bad)</p>
+                <p id="b-num" class="text-3xl font-bold text-red-400">0</p>
             </div>
-            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
-                <div class="text-xs uppercase text-slate-500 font-bold">Retries</div>
-                <div id="r-count" class="text-2xl font-bold text-yellow-500">0</div>
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <p class="text-xs text-slate-500 uppercase font-bold">Újrapróbálás</p>
+                <p id="r-num" class="text-3xl font-bold text-yellow-400">0</p>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="space-y-4">
-                <textarea id="combo" class="w-full h-64 bg-slate-900 border border-slate-700 rounded-lg p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="email:password"></textarea>
-                <input type="text" id="key" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 outline-none" placeholder="Kulcsszó (pl: PayPal)">
-                <button onclick="run()" id="runBtn" class="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-lg font-black uppercase transition-all shadow-lg">Futtatás Indítása</button>
+            <div class="space-y-6">
+                <div class="space-y-2">
+                    <label class="text-sm font-semibold text-slate-400 uppercase">Combo Lista (email:pass)</label>
+                    <textarea id="combo" class="w-full h-64 bg-slate-900 border border-slate-700 rounded-lg p-4 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm" placeholder="example@hotmail.com:password123"></textarea>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-semibold text-slate-400 uppercase">Keresendő szó</label>
+                    <input type="text" id="keyword" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Pl: PlayStation, Netflix, PayPal">
+                </div>
+                <button id="startBtn" onclick="start()" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold text-white shadow-lg shadow-blue-900/40 transition-all active:scale-95">INDÍTÁS MOST</button>
             </div>
 
             <div class="lg:col-span-2">
-                <div class="flex justify-between mb-2">
-                    <span class="text-xs font-bold uppercase text-slate-500">Élő Konzol</span>
-                    <div id="dl-area" class="hidden space-x-2">
-                        <button onclick="dl('hits')" class="text-xs text-green-500 underline">Hits Letöltése</button>
-                        <button onclick="dl('custom')" class="text-xs text-blue-500 underline">Custom Letöltése</button>
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Élő Log Kimenet</span>
+                    <div id="dl-btns" class="hidden space-x-2">
+                        <button onclick="dl('hits')" class="text-xs bg-green-500/10 text-green-500 border border-green-500/20 px-3 py-1 rounded-md hover:bg-green-500 hover:text-white transition-all">Hits .txt</button>
+                        <button onclick="dl('custom')" class="text-xs bg-sky-500/10 text-sky-500 border border-sky-500/20 px-3 py-1 rounded-md hover:bg-sky-500 hover:text-white transition-all">Custom .txt</button>
                     </div>
                 </div>
-                <div id="logs" class="log-container rounded-lg p-4 border border-slate-800 shadow-inner"></div>
+                <div id="logs" class="log-box p-4 rounded-xl">
+                    <div class="text-slate-700 italic">Várakozás a parancsra...</div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         const socket = io();
-        let sid = '';
-        socket.on('connect', () => { sid = socket.id; });
+        let currentSid = '';
+        socket.on('connect', () => { currentSid = socket.id; });
 
-        function run() {
+        function start() {
             const combo = document.getElementById('combo').value;
-            const keyword = document.getElementById('key').value;
-            if(!combo || !keyword) return alert("Combo és Kulcsszó kötelező!");
+            const keyword = document.getElementById('keyword').value;
+            if(!combo || !keyword) return alert("Töltsd ki az adatokat!");
             
-            document.getElementById('runBtn').disabled = true;
-            document.getElementById('runBtn').classList.add('opacity-50');
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('startBtn').innerText = "FOLYAMATBAN...";
             document.getElementById('logs').innerHTML = '';
-            document.getElementById('status').innerText = "Keresés folyamatban...";
-            socket.emit('start_process', { combo, keyword });
+            socket.emit('start_check', { combo, keyword });
         }
 
-        socket.on('new_log', data => {
+        socket.on('new_log', (data) => {
             const div = document.createElement('div');
             div.className = "mb-1 " + data.type;
-            div.innerText = `[${new Date().toLocaleTimeString()}] ${data.msg}`;
-            const logs = document.getElementById('logs');
-            logs.prepend(div);
+            div.innerHTML = `<span class="text-slate-600">[${new Date().toLocaleTimeString()}]</span> ${data.msg}`;
+            const logBox = document.getElementById('logs');
+            logBox.prepend(div);
         });
 
-        socket.on('stats_update', d => {
-            document.getElementById('h-count').innerText = d.hits;
-            document.getElementById('c-count').innerText = d.custom;
-            document.getElementById('b-count').innerText = d.bad;
-            document.getElementById('r-count').innerText = d.retries;
+        socket.on('stats_update', (d) => {
+            document.getElementById('h-num').innerText = d.hits;
+            document.getElementById('c-num').innerText = d.custom;
+            document.getElementById('b-num').innerText = d.bad;
+            document.getElementById('r-num').innerText = d.retries;
         });
 
         socket.on('finished', () => {
-            document.getElementById('runBtn').disabled = false;
-            document.getElementById('runBtn').classList.remove('opacity-50');
-            document.getElementById('dl-area').classList.remove('hidden');
-            document.getElementById('status').innerText = "Befejezve.";
-            alert("A keresés véget ért!");
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('startBtn').innerText = "INDÍTÁS MOST";
+            document.getElementById('dl-btns').classList.remove('hidden');
+            alert("A lista ellenőrzése befejeződött!");
         });
 
-        function dl(t) { window.location.href = `/download/${t}/${sid}`; }
+        function dl(type) {
+            window.location.href = `/download/${type}/${currentSid}`;
+        }
     </script>
 </body>
 </html>
