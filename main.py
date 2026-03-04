@@ -282,7 +282,7 @@ async def get_runs(current_user = Depends(get_current_user)):
     for run in runs:
         run["_id"] = str(run["_id"])
         run["started_at"] = run["started_at"].isoformat()
-        if run["finished_at"]:
+        if run.get("finished_at"):  # FIX: .get() használata
             run["finished_at"] = run["finished_at"].isoformat()
     
     return runs
@@ -296,7 +296,7 @@ async def get_run_details(run_id: str, current_user = Depends(get_current_user))
     
     run["_id"] = str(run["_id"])
     run["started_at"] = run["started_at"].isoformat()
-    if run["finished_at"]:
+    if run.get("finished_at"):  # FIX: .get() használata
         run["finished_at"] = run["finished_at"].isoformat()
     
     return run
@@ -334,7 +334,7 @@ async def download_results(
 # WEBSOCKET
 # ============================================================
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str):
+async def websocket_endpoint(websocket: WebSocket, token: str = ""):  # FIX: default érték
     """WebSocket kapcsolat (live updates)"""
     await websocket.accept()
     
@@ -392,7 +392,6 @@ if __name__ == "__main__":
     print(f"\n{'='*60}")
     print(f"  🚀 Hotmail Inboxer Multi-User")
     print(f"  📡 http://0.0.0.0:{port}")
-    print(f"  🔐 MongoDB: {'✅ Connected' if MONGODB_URL else '❌ Not configured'}")
     print(f"{'='*60}\n")
     
     uvicorn.run(
