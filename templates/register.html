@@ -5,23 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Regisztráció - Hotmail Inboxer</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body class="register-bg">
-    <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="min-h-screen flex flex-col items-center justify-center p-4">
         <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in">
-            <div class="text-center mb-8">
-                <div class="text-6xl mb-4">✨</div>
-                <h1 class="text-4xl font-black text-white mb-2">
+            
+            <!-- LOGO -->
+            <div class="text-center mb-10">
+                <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-5"
+                     style="background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 10px 30px rgba(139,92,246,0.4);">
+                    <i data-lucide="user-plus" class="w-10 h-10 text-white"></i>
+                </div>
+                <h1 class="text-3xl font-black text-white mb-2 tracking-tight">
                     Regisztráció
                 </h1>
-                <p class="text-white/60">Készíts ingyenes fiókot</p>
+                <p class="text-white/40 text-sm tracking-widest uppercase">
+                    Készítette <span class="text-purple-400 font-bold">Szaby</span>
+                </p>
             </div>
             
-            <form id="registerForm" class="space-y-6">
+            <!-- FORM -->
+            <form id="registerForm" class="space-y-5">
                 <div>
-                    <label class="block text-white text-sm mb-2 font-semibold">
-                        📧 Email cím
+                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="mail" class="w-3.5 h-3.5"></i>
+                        Email cím
                     </label>
                     <input type="email" id="email" required
                         placeholder="sajat@email.com"
@@ -29,39 +40,54 @@
                 </div>
                 
                 <div>
-                    <label class="block text-white text-sm mb-2 font-semibold">
-                        🔒 Jelszó (min. 6 karakter)
+                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+                        Jelszó (min. 6 karakter)
                     </label>
                     <input type="password" id="password" required minlength="6"
                         placeholder="••••••••"
                         class="glass-input">
                 </div>
                 
-                <button type="submit" class="glass-button w-full">
+                <button type="submit" class="glass-button w-full mt-2" 
+                    style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
                     <span>Fiók létrehozása</span>
-                    <span class="ml-2">✓</span>
+                    <i data-lucide="check" class="w-5 h-5"></i>
                 </button>
             </form>
             
-            <div class="mt-6 text-center">
-                <p class="text-white/70 text-sm">
-                    Van már fiókod?
-                </p>
-                <a href="/" 
-                   class="text-white font-bold hover:underline text-lg mt-1 inline-block">
-                    Bejelentkezés →
+            <!-- LOGIN LINK -->
+            <div class="mt-8 text-center">
+                <p class="text-white/30 text-sm">Van már fiókod?</p>
+                <a href="/" class="text-purple-400 font-bold hover:text-purple-300 transition text-sm mt-1 inline-flex items-center gap-1">
+                    Bejelentkezés
+                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
                 </a>
             </div>
             
-            <div id="error" class="hidden mt-4 p-3 bg-red-500/20 border border-red-400
-                text-white rounded-xl text-sm animate-shake"></div>
+            <!-- ERROR -->
+            <div id="error" class="hidden mt-4 p-3 bg-red-500/10 border border-red-500/30
+                text-red-300 rounded-xl text-sm flex items-center gap-2">
+            </div>
+        </div>
+        
+        <!-- FOOTER -->
+        <div class="footer mt-8">
+            <div class="footer-divider"></div>
+            <div class="flex items-center justify-center gap-2 mt-3">
+                <i data-lucide="code-2" class="w-4 h-4 text-purple-400/60"></i>
+                <span class="footer-brand">SZABY</span>
+                <span class="text-white/10">·</span>
+                <span class="text-white/20">Hotmail Inboxer</span>
+            </div>
         </div>
     </div>
 
     <script>
+        lucide.createIcons();
+        
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const btn = e.target.querySelector('button');
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Regisztráció...';
@@ -71,10 +97,7 @@
             formData.append('password', document.getElementById('password').value);
             
             try {
-                const res = await fetch('/api/register', {
-                    method: 'POST',
-                    body: formData
-                });
+                const res = await fetch('/api/register', { method: 'POST', body: formData });
                 const data = await res.json();
                 
                 if (res.ok) {
@@ -82,20 +105,19 @@
                     localStorage.setItem('email', data.email);
                     window.location.href = '/dashboard';
                 } else {
-                    const errorDiv = document.getElementById('error');
-                    errorDiv.textContent = '❌ ' + data.detail;
-                    errorDiv.classList.remove('hidden');
+                    const err = document.getElementById('error');
+                    err.innerHTML = '<i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>' + data.detail;
+                    err.classList.remove('hidden');
+                    lucide.createIcons();
                     btn.disabled = false;
-                    btn.innerHTML = '<span>Fiók létrehozása</span><span class="ml-2">✓</span>';
-                    
-                    setTimeout(() => {
-                        errorDiv.classList.add('hidden');
-                    }, 3000);
+                    btn.innerHTML = '<span>Fiók létrehozása</span><i data-lucide="check" class="w-5 h-5"></i>';
+                    lucide.createIcons();
+                    setTimeout(() => err.classList.add('hidden'), 3000);
                 }
             } catch(err) {
-                alert('❌ Hiba történt: ' + err);
+                alert('Hiba: ' + err);
                 btn.disabled = false;
-                btn.innerHTML = '<span>Fiók létrehozása</span><span class="ml-2">✓</span>';
+                btn.innerHTML = '<span>Fiók létrehozása</span>';
             }
         });
     </script>
