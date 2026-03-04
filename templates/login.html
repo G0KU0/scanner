@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bejelentkezés - Hotmail Inboxer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-bg">
+    <div class="min-h-screen flex items-center justify-center p-4">
+        <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in">
+            <div class="text-center mb-8">
+                <div class="text-6xl mb-4">🔐</div>
+                <h1 class="text-4xl font-black text-white mb-2">
+                    Hotmail Inboxer
+                </h1>
+                <p class="text-white/60">Multi-User Edition</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <label class="block text-white text-sm mb-2 font-semibold">
+                        📧 Email
+                    </label>
+                    <input type="email" id="email" required
+                        placeholder="sajat@email.com"
+                        class="glass-input">
+                </div>
+                
+                <div>
+                    <label class="block text-white text-sm mb-2 font-semibold">
+                        🔒 Jelszó
+                    </label>
+                    <input type="password" id="password" required
+                        placeholder="••••••••"
+                        class="glass-input">
+                </div>
+                
+                <button type="submit" class="glass-button w-full">
+                    <span>Bejelentkezés</span>
+                    <span class="ml-2">→</span>
+                </button>
+            </form>
+            
+            <div class="mt-6 text-center">
+                <p class="text-white/70 text-sm">
+                    Nincs még fiókod?
+                </p>
+                <a href="/register" 
+                   class="text-white font-bold hover:underline text-lg mt-1 inline-block">
+                    Regisztráció →
+                </a>
+            </div>
+            
+            <div id="error" class="hidden mt-4 p-3 bg-red-500/20 border border-red-400
+                text-white rounded-xl text-sm animate-shake"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const btn = e.target.querySelector('button');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Bejelentkezés...';
+            
+            const formData = new FormData();
+            formData.append('email', document.getElementById('email').value);
+            formData.append('password', document.getElementById('password').value);
+            
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('email', data.email);
+                    window.location.href = '/dashboard';
+                } else {
+                    const errorDiv = document.getElementById('error');
+                    errorDiv.textContent = '❌ ' + data.detail;
+                    errorDiv.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>Bejelentkezés</span><span class="ml-2">→</span>';
+                    
+                    setTimeout(() => {
+                        errorDiv.classList.add('hidden');
+                    }, 3000);
+                }
+            } catch(err) {
+                alert('❌ Hiba történt: ' + err);
+                btn.disabled = false;
+                btn.innerHTML = '<span>Bejelentkezés</span><span class="ml-2">→</span>';
+            }
+        });
+    </script>
+</body>
+</html>
