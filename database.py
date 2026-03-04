@@ -4,11 +4,26 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
+# .env betöltése (ha van)
 load_dotenv()
 
+# MongoDB URL (Environment Variable-ből VAGY fallback)
 MONGODB_URL = os.getenv("MONGODB_URL")
-client = AsyncIOMotorClient(MONGODB_URL)
-database = client.hotmail_checker
+
+if not MONGODB_URL:
+    raise ValueError(
+        "❌ MONGODB_URL nincs beállítva! "
+        "Állítsd be Environment Variable-ként a Render Dashboard-on!"
+    )
+
+# MongoDB client
+try:
+    client = AsyncIOMotorClient(MONGODB_URL)
+    database = client.hotmail_checker
+    print("✅ MongoDB kapcsolat inicializálva")
+except Exception as e:
+    print(f"❌ MongoDB hiba: {e}")
+    raise
 
 # Collections
 users_collection = database.users
