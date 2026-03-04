@@ -106,7 +106,7 @@
                         <span>START CHECKER</span>
                     </button>
                     <button type="button" id="stopBtn" onclick="stopChecker()" 
-                        class="hidden flex items-center gap-2 px-8 py-3 bg-red-500/10 hover:bg-red-500/20 
+                        class="hidden flex items-center justify-center gap-2 px-8 py-3 bg-red-500/10 hover:bg-red-500/20 
                         border border-red-500/30 text-red-300 rounded-xl font-bold transition"
                         style="font-family: 'Inter', sans-serif;">
                         <i data-lucide="square" class="w-4 h-4"></i>
@@ -293,13 +293,31 @@
         function connectWS() {
             const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${p}//${location.host}/ws?token=${token}`);
-            ws.onopen = () => console.log('WS connected');
+            ws.onopen = () => console.log('✅ WS connected');
             ws.onmessage = (e) => { if (e.data === 'pong') return; try { handleMessage(JSON.parse(e.data)); } catch(err) {} };
             ws.onclose = () => setTimeout(connectWS, 2000);
             setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping'); }, 30000);
         }
 
         function handleMessage(data) {
+            // 🔴 GOLYÓÁLLÓ UI VISSZAÁLLÍTÁS FRISSÍTÉSKOR 🔴
+            // Ha jön statisztika, vagy log, azonnal "Futó" állapotba kényszerítjük a UI-t!
+            if (data.type === 'stats' || data.type === 'log' || data.type === 'active_run') {
+                if (!data.text || !data.text.includes('KÉSZ') && !data.text.includes('LEÁLLÍTVA')) {
+                    document.getElementById('statsWrap').classList.remove('hidden');
+                    document.getElementById('progressWrap').classList.remove('hidden');
+                    document.getElementById('stopBtn').classList.remove('hidden');
+                    document.getElementById('downloadWrap').classList.add('hidden');
+                    
+                    const btn = document.getElementById('startBtn');
+                    if (!btn.disabled) {
+                        btn.disabled = true;
+                        btn.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Fut...</span>';
+                        lucide.createIcons();
+                    }
+                }
+            }
+
             if (data.type === 'stats') {
                 document.getElementById('statHits').textContent = data.hits;
                 document.getElementById('statCustom').textContent = data.custom;
@@ -329,11 +347,6 @@
             else if (data.type === 'active_run') {
                 const run = data.run;
                 currentRunId = run._id;
-                document.getElementById('statsWrap').classList.remove('hidden');
-                document.getElementById('progressWrap').classList.remove('hidden');
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('startBtn').innerHTML = '<span class="loading"></span> Fut...';
-                document.getElementById('stopBtn').classList.remove('hidden');
                 document.getElementById('statHits').textContent = run.hits;
                 document.getElementById('statCustom').textContent = run.custom;
                 document.getElementById('statBad').textContent = run.bad;
@@ -411,7 +424,8 @@
             formData.append('speed', speed);
             const btn = document.getElementById('startBtn');
             btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Indítás...';
+            btn.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Indítás...</span>';
+            lucide.createIcons();
             document.getElementById('statsWrap').classList.remove('hidden');
             document.getElementById('progressWrap').classList.remove('hidden');
             document.getElementById('downloadWrap').classList.add('hidden');
@@ -423,14 +437,14 @@
             try {
                 const res = await fetch('/api/start', { method: 'POST', headers: {'Authorization': `Bearer ${token}`}, body: formData });
                 const data = await res.json();
-                if (res.ok) { currentRunId = data.run_id; btn.innerHTML = '<span class="loading"></span> Fut...'; addLog(`[START] ${data.total} combo | ${keyword} | ${data.speed}s`, 'info'); }
+                if (res.ok) { currentRunId = data.run_id; btn.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Fut...</span>'; addLog(`[START] ${data.total} combo | ${keyword} | ${data.speed}s`, 'info'); lucide.createIcons(); }
                 else { alert(data.detail); btn.disabled = false; btn.innerHTML = '<i data-lucide="play" class="w-5 h-5"></i><span>START CHECKER</span>'; document.getElementById('stopBtn').classList.add('hidden'); lucide.createIcons(); }
-            } catch(err) { alert('Hiba: ' + err); btn.disabled = false; btn.innerHTML = '<span>START CHECKER</span>'; document.getElementById('stopBtn').classList.add('hidden'); }
+            } catch(err) { alert('Hiba: ' + err); btn.disabled = false; btn.innerHTML = '<i data-lucide="play" class="w-5 h-5"></i><span>START CHECKER</span>'; document.getElementById('stopBtn').classList.add('hidden'); lucide.createIcons();}
         }
 
         async function stopChecker() {
             if (!confirm('Leállítod a checkert?')) return;
-            try { await fetch('/api/stop', { method: 'POST', headers: {'Authorization': `Bearer ${token}`} }); addLog('[LEÁLLÍTÁS...]', 'info'); } catch(err) { alert('Hiba: ' + err); }
+            try { await fetch('/api/stop', { method: 'POST', headers: {'Authorization': `Bearer ${token}`} }); addLog('[LEÁLLÍTÁS FOLYAMATBAN...]', 'info'); } catch(err) { alert('Hiba: ' + err); }
         }
 
         async function downloadResults(type) {
