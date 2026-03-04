@@ -3,31 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Hotmail Inboxer</title>
+    <title>Dashboard - Hotmail Inboxer by Szaby</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body class="dashboard-bg">
     
     <!-- HEADER -->
-    <header class="sticky top-0 z-50 backdrop-blur-lg bg-black/30 border-b border-white/10">
+    <header class="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5">
         <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="text-3xl">⚡</div>
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                     style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+                    <i data-lucide="zap" class="w-5 h-5 text-white"></i>
+                </div>
                 <div>
-                    <h1 class="text-xl font-black text-white">Hotmail Inboxer</h1>
-                    <p class="text-xs text-white/60">Multi-User Dashboard v3</p>
+                    <h1 class="text-lg font-black text-white tracking-tight">Hotmail Inboxer</h1>
+                    <p class="text-[10px] text-white/30 uppercase tracking-[3px]">by Szaby</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
-                <div class="text-sm text-white/80">
-                    <span class="text-white/50">👤</span>
-                    <span id="userEmail" class="font-semibold">Loading...</span>
+                <div class="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                    <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span id="userEmail" class="text-sm text-white/70 font-medium">Loading...</span>
                 </div>
                 <button onclick="logout()" 
-                    class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 
-                    text-red-300 rounded-lg transition text-sm font-semibold">
-                    🚪 Kilépés
+                    class="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-red-500/10 border border-white/5 hover:border-red-500/20
+                    text-white/60 hover:text-red-300 rounded-xl transition text-sm font-semibold">
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Kilépés</span>
                 </button>
             </div>
         </div>
@@ -37,72 +43,89 @@
 
         <!-- UPLOAD CARD -->
         <div class="glass-card rounded-2xl p-8 mb-8 animate-fade-in">
-            <h2 class="text-2xl font-black text-white mb-6 flex items-center gap-2">
-                <span>🚀</span>
+            <h2 class="text-xl font-black text-white mb-6 flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" 
+                     style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+                    <i data-lucide="rocket" class="w-4 h-4 text-white"></i>
+                </div>
                 <span>Új Checker Indítása</span>
             </h2>
             
             <form id="checkerForm" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
-                        <label class="block text-white/80 text-sm mb-2 font-semibold">
-                            📁 Combo fájl (.txt)
+                        <label class="block text-white/50 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                            Combo fájl
                         </label>
                         <input type="file" id="comboFile" accept=".txt" required class="file-input">
-                        <p class="text-xs text-white/40 mt-1">Formátum: email:jelszó</p>
+                        <p class="text-[11px] text-white/25 mt-2 flex items-center gap-1">
+                            <i data-lucide="info" class="w-3 h-3"></i>
+                            email:jelszó formátum
+                        </p>
                     </div>
                     
                     <div>
-                        <label class="block text-white/80 text-sm mb-2 font-semibold">
-                            🔍 Keresett keyword
+                        <label class="block text-white/50 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                            Keyword
                         </label>
                         <input type="text" id="keyword" required
-                            placeholder="netflix, spotify, playstation..."
+                            placeholder="netflix, spotify..."
                             class="glass-input">
-                        <p class="text-xs text-white/40 mt-1">Mit keressünk?</p>
+                        <p class="text-[11px] text-white/25 mt-2 flex items-center gap-1">
+                            <i data-lucide="info" class="w-3 h-3"></i>
+                            Mit keressünk?
+                        </p>
                     </div>
                     
                     <div>
-                        <label class="block text-white/80 text-sm mb-2 font-semibold">
-                            ⚡ Sebesség
+                        <label class="block text-white/50 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="gauge" class="w-3.5 h-3.5"></i>
+                            Sebesség
                         </label>
                         <select id="speed" class="glass-input cursor-pointer">
-                            <option value="0.05">🔴 Ultra gyors (0.05s)</option>
-                            <option value="0.1">🟠 Nagyon gyors (0.1s)</option>
-                            <option value="0.15">🟡 Gyors (0.15s)</option>
-                            <option value="0.2">🟡 Közepes-gyors (0.2s)</option>
-                            <option value="0.3" selected>🟢 Ajánlott (0.3s)</option>
-                            <option value="0.35">🟢 Biztonságos (0.35s)</option>
-                            <option value="0.5">🟢 Nagyon biztos (0.5s)</option>
-                            <option value="1.0">🔵 Lassú (1.0s)</option>
+                            <option value="0.05">Ultra gyors (0.05s)</option>
+                            <option value="0.1">Nagyon gyors (0.1s)</option>
+                            <option value="0.15">Gyors (0.15s)</option>
+                            <option value="0.2">Közepes (0.2s)</option>
+                            <option value="0.3" selected>Ajánlott (0.3s)</option>
+                            <option value="0.5">Biztonságos (0.5s)</option>
+                            <option value="1.0">Lassú (1.0s)</option>
                         </select>
-                        <p class="text-xs text-white/40 mt-1" id="speedInfo">~180 account/perc</p>
+                        <p class="text-[11px] text-white/25 mt-2 flex items-center gap-1" id="speedInfo">
+                            <i data-lucide="activity" class="w-3 h-3"></i>
+                            ~180 account/perc
+                        </p>
                     </div>
                 </div>
 
                 <div class="flex gap-4">
                     <button type="submit" id="startBtn" class="glass-button flex-1">
-                        <span>⚡ START CHECKER</span>
+                        <i data-lucide="play" class="w-5 h-5"></i>
+                        <span>START CHECKER</span>
                     </button>
                     <button type="button" id="stopBtn" onclick="stopChecker()" 
-                        class="hidden px-8 py-3 bg-red-600/20 hover:bg-red-600/30 
-                        border border-red-500 text-red-300 rounded-xl font-bold transition">
-                        ⏹️ STOP
+                        class="hidden flex items-center gap-2 px-8 py-3 bg-red-500/10 hover:bg-red-500/20 
+                        border border-red-500/30 text-red-300 rounded-xl font-bold transition"
+                        style="font-family: 'Inter', sans-serif;">
+                        <i data-lucide="square" class="w-4 h-4"></i>
+                        STOP
                     </button>
                 </div>
             </form>
 
             <!-- PROGRESS -->
             <div id="progressWrap" class="mt-6 hidden">
-                <div class="flex justify-between text-sm text-white/60 mb-2">
-                    <span>⏳ Haladás</span>
+                <div class="flex justify-between text-xs text-white/40 mb-2 font-medium">
+                    <span class="flex items-center gap-1">
+                        <i data-lucide="loader" class="w-3 h-3 animate-spin"></i>
+                        Haladás
+                    </span>
                     <span id="progressText">0 / 0</span>
                 </div>
-                <div class="w-full bg-white/10 rounded-full h-4 overflow-hidden backdrop-blur-sm">
-                    <div id="progressBar" 
-                        class="progress-bar h-full rounded-full transition-all duration-500" 
-                        style="width: 0%">
-                    </div>
+                <div class="w-full bg-white/5 rounded-full h-3 overflow-hidden">
+                    <div id="progressBar" class="progress-bar h-full rounded-full transition-all duration-500" style="width: 0%"></div>
                 </div>
             </div>
         </div>
@@ -110,83 +133,98 @@
         <!-- STATS -->
         <div id="statsWrap" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 hidden">
             <div class="stat-card stat-hit cursor-pointer" onclick="togglePreview('hits')">
+                <div class="flex justify-center mb-2">
+                    <i data-lucide="check-circle" class="w-6 h-6 text-green-400/50"></i>
+                </div>
                 <div class="stat-value" id="statHits">0</div>
-                <div class="stat-label">✅ HITS</div>
-                <div class="text-xs text-white/40 mt-1">Kattints a megtekintéshez</div>
+                <div class="stat-label">HITS</div>
+                <div class="text-[10px] text-white/20 mt-2 flex items-center justify-center gap-1">
+                    <i data-lucide="eye" class="w-3 h-3"></i>
+                    Megtekintés
+                </div>
             </div>
             <div class="stat-card stat-custom cursor-pointer" onclick="togglePreview('custom')">
+                <div class="flex justify-center mb-2">
+                    <i data-lucide="clipboard-list" class="w-6 h-6 text-cyan-400/50"></i>
+                </div>
                 <div class="stat-value" id="statCustom">0</div>
-                <div class="stat-label">📋 CUSTOM</div>
-                <div class="text-xs text-white/40 mt-1">Kattints a megtekintéshez</div>
+                <div class="stat-label">CUSTOM</div>
+                <div class="text-[10px] text-white/20 mt-2 flex items-center justify-center gap-1">
+                    <i data-lucide="eye" class="w-3 h-3"></i>
+                    Megtekintés
+                </div>
             </div>
             <div class="stat-card stat-bad">
+                <div class="flex justify-center mb-2">
+                    <i data-lucide="x-circle" class="w-6 h-6 text-red-400/50"></i>
+                </div>
                 <div class="stat-value" id="statBad">0</div>
-                <div class="stat-label">❌ BAD</div>
+                <div class="stat-label">BAD</div>
             </div>
             <div class="stat-card stat-retry">
+                <div class="flex justify-center mb-2">
+                    <i data-lucide="refresh-cw" class="w-6 h-6 text-yellow-400/50"></i>
+                </div>
                 <div class="stat-value" id="statRetry">0</div>
-                <div class="stat-label">🔄 RETRIES</div>
+                <div class="stat-label">RETRIES</div>
             </div>
         </div>
 
-        <!-- LIVE PREVIEW (ÚJ!) -->
+        <!-- LIVE PREVIEW -->
         <div id="livePreview" class="glass-card rounded-2xl overflow-hidden mb-8 hidden">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
-                <div class="flex items-center gap-2">
-                    <span class="text-lg">👁️</span>
-                    <span class="text-white font-bold" id="previewTitle">Live Hits</span>
-                    <span class="text-xs text-white/40" id="previewCount">(0)</span>
+            <div class="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                    <i data-lucide="eye" class="w-4 h-4 text-white/50"></i>
+                    <span class="text-white font-bold text-sm" id="previewTitle">Live Hits</span>
+                    <span class="text-xs text-white/30 font-mono" id="previewCount">(0)</span>
                 </div>
                 <button onclick="togglePreview(null)" 
-                    class="text-xs px-3 py-1 bg-white/5 hover:bg-white/10 
-                    text-white/60 rounded-lg transition">
-                    ✕ Bezár
+                    class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-white/40 transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
                 </button>
             </div>
-            <div id="previewBox" 
-                 class="h-[400px] overflow-y-auto p-4 font-mono text-sm space-y-2 bg-black/40">
-                <div class="text-white/30 text-center py-20">
+            <div id="previewBox" class="h-[400px] overflow-y-auto p-4 space-y-2 bg-black/30" style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+                <div class="text-white/20 text-center py-20 flex flex-col items-center gap-3">
+                    <i data-lucide="inbox" class="w-8 h-8"></i>
                     Még nincs találat...
                 </div>
             </div>
         </div>
 
-        <!-- DOWNLOAD BUTTONS -->
+        <!-- DOWNLOAD -->
         <div id="downloadWrap" class="flex gap-4 mb-8 hidden">
-            <button onclick="downloadResults('hits')" 
-                class="flex-1 download-btn download-hit">
-                <span>⬇️</span>
+            <button onclick="downloadResults('hits')" class="flex-1 download-btn download-hit">
+                <i data-lucide="download" class="w-5 h-5"></i>
                 <span>Hits letöltése</span>
-                <span id="hitsCount" class="ml-2 opacity-60">(0)</span>
+                <span id="hitsCount" class="opacity-50 font-mono">(0)</span>
             </button>
-            <button onclick="downloadResults('custom')" 
-                class="flex-1 download-btn download-custom">
-                <span>⬇️</span>
+            <button onclick="downloadResults('custom')" class="flex-1 download-btn download-custom">
+                <i data-lucide="download" class="w-5 h-5"></i>
                 <span>Custom letöltése</span>
-                <span id="customCount" class="ml-2 opacity-60">(0)</span>
+                <span id="customCount" class="opacity-50 font-mono">(0)</span>
             </button>
         </div>
 
-        <!-- LIVE LOG -->
+        <!-- LOG -->
         <div class="glass-card rounded-2xl overflow-hidden">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
-                <div class="flex items-center gap-2">
-                    <span class="text-lg">📜</span>
-                    <span class="text-white font-bold">Live Log</span>
+            <div class="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i>
+                    <span class="text-white font-bold text-sm">Live Log</span>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span id="logCount" class="text-xs text-white/40">0 sor</span>
+                    <span id="logCount" class="text-[11px] text-white/25 font-mono">0 sor</span>
                     <button onclick="clearLog()" 
-                        class="text-xs px-3 py-1 bg-white/5 hover:bg-white/10 
-                        text-white/60 rounded-lg transition">
-                        🗑️ Törlés
+                        class="flex items-center gap-1 text-[11px] px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/40 rounded-lg transition font-medium">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                        Törlés
                     </button>
                 </div>
             </div>
-            <div id="logBox" 
-                 class="h-[500px] overflow-y-auto p-4 font-mono text-sm space-y-1 bg-black/40">
-                <div class="text-white/30 text-center py-20 text-base">
-                    <div class="text-4xl mb-4">💤</div>
+            <div id="logBox" class="h-[500px] overflow-y-auto p-4 space-y-1 bg-black/30">
+                <div class="text-white/15 text-center py-20 text-sm flex flex-col items-center gap-4">
+                    <i data-lucide="terminal" class="w-10 h-10 opacity-20"></i>
                     <p>Indítsd el a checkert...</p>
                 </div>
             </div>
@@ -195,80 +233,70 @@
         <!-- HISTORY -->
         <div class="glass-card rounded-2xl p-8 mt-8">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-black text-white flex items-center gap-2">
-                    <span>📊</span>
-                    <span>Korábbi Futtatások</span>
+                <h2 class="text-xl font-black text-white flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+                        <i data-lucide="bar-chart-3" class="w-4 h-4 text-indigo-400"></i>
+                    </div>
+                    <span>Előzmények</span>
                 </h2>
                 <button onclick="loadHistory()" 
-                    class="px-4 py-2 bg-white/5 hover:bg-white/10 
-                    text-white/80 rounded-lg transition text-sm">
-                    🔄 Frissítés
+                    class="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/50 rounded-lg transition text-xs font-semibold uppercase tracking-wider">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    Frissítés
                 </button>
             </div>
             <div id="historyList" class="space-y-3">
-                <div class="text-white/40 text-center py-10">Betöltés...</div>
+                <div class="text-white/20 text-center py-10 text-sm flex flex-col items-center gap-3">
+                    <i data-lucide="clock" class="w-6 h-6 opacity-30"></i>
+                    Betöltés...
+                </div>
             </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer mt-12 mb-4">
+            <div class="footer-divider"></div>
+            <div class="flex items-center justify-center gap-3 mt-3">
+                <i data-lucide="code-2" class="w-4 h-4 text-indigo-400/50"></i>
+                <span class="footer-brand">SZABY</span>
+                <span class="text-white/10">·</span>
+                <span class="text-white/20">Hotmail Inboxer v3.2</span>
+            </div>
+            <p class="text-white/10 text-[11px] mt-2">Minden jog fenntartva © 2025</p>
         </div>
 
     </div>
 
-    <!-- SCRIPTS -->
     <script>
+        lucide.createIcons();
+        
         let ws = null;
         let logCount = 0;
         let started = false;
         let currentRunId = null;
         const token = localStorage.getItem('token');
         const email = localStorage.getItem('email');
-
-        // Live preview adatok
         let liveHits = [];
         let liveCustom = [];
         let currentPreview = null;
 
-        if (!token || !email) {
-            window.location.href = '/';
-        }
-
+        if (!token || !email) { window.location.href = '/'; }
         document.getElementById('userEmail').textContent = email;
 
-        // Sebesség kalkulátor
         document.getElementById('speed').addEventListener('change', function() {
-            const speed = parseFloat(this.value);
-            const accountsPerMin = Math.round(60 / speed);
-            const accountsPerHour = Math.round(3600 / speed);
-            document.getElementById('speedInfo').textContent = 
-                `~${accountsPerMin} account/perc (~${accountsPerHour.toLocaleString()}/óra)`;
+            const s = parseFloat(this.value);
+            document.getElementById('speedInfo').innerHTML = `<i data-lucide="activity" class="w-3 h-3"></i> ~${Math.round(60/s)} account/perc (~${Math.round(3600/s).toLocaleString()}/óra)`;
+            lucide.createIcons();
         });
         document.getElementById('speed').dispatchEvent(new Event('change'));
 
-        // WebSocket
         function connectWS() {
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws?token=${token}`);
-
-            ws.onopen = () => console.log('✅ WebSocket connected');
-
-            ws.onmessage = (e) => {
-                if (e.data === 'pong') return;
-                try {
-                    const data = JSON.parse(e.data);
-                    handleMessage(data);
-                } catch(err) {
-                    console.error('WS parse error', err);
-                }
-            };
-
-            ws.onclose = () => {
-                console.log('❌ WS disconnected, reconnecting...');
-                setTimeout(connectWS, 2000);
-            };
-
-            setInterval(() => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send('ping');
-                }
-            }, 30000);
+            const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${p}//${location.host}/ws?token=${token}`);
+            ws.onopen = () => console.log('WS connected');
+            ws.onmessage = (e) => { if (e.data === 'pong') return; try { handleMessage(JSON.parse(e.data)); } catch(err) {} };
+            ws.onclose = () => setTimeout(connectWS, 2000);
+            setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping'); }, 30000);
         }
 
         function handleMessage(data) {
@@ -277,355 +305,169 @@
                 document.getElementById('statCustom').textContent = data.custom;
                 document.getElementById('statBad').textContent = data.bad;
                 document.getElementById('statRetry').textContent = data.retries;
-
                 if (data.total > 0) {
                     const pct = Math.round((data.checked / data.total) * 100);
                     document.getElementById('progressBar').style.width = pct + '%';
-                    document.getElementById('progressText').textContent = 
-                        `${data.checked} / ${data.total} (${pct}%)`;
+                    document.getElementById('progressText').textContent = `${data.checked} / ${data.total} (${pct}%)`;
                 }
-
                 currentRunId = data.run_id;
             }
-            else if (data.type === 'log') {
-                addLog(data.text, data.level);
-            }
-            else if (data.type === 'live_hit') {
-                // LIVE HIT hozzáadása
-                liveHits.push(data.data);
-                if (currentPreview === 'hits') {
-                    updatePreview('hits');
-                }
-            }
-            else if (data.type === 'live_custom') {
-                // LIVE CUSTOM hozzáadása
-                liveCustom.push(data.data);
-                if (currentPreview === 'custom') {
-                    updatePreview('custom');
-                }
-            }
-            else if (data.type === 'finished') {
+            else if (data.type === 'log') { addLog(data.text, data.level); }
+            else if (data.type === 'live_hit') { liveHits.push(data.data); if (currentPreview === 'hits') updatePreview('hits'); }
+            else if (data.type === 'live_custom') { liveCustom.push(data.data); if (currentPreview === 'custom') updatePreview('custom'); }
+            else if (data.type === 'finished' || data.type === 'stopped') {
                 document.getElementById('startBtn').disabled = false;
-                document.getElementById('startBtn').innerHTML = '<span>⚡ START CHECKER</span>';
+                document.getElementById('startBtn').innerHTML = '<i data-lucide="play" class="w-5 h-5"></i><span>START CHECKER</span>';
                 document.getElementById('stopBtn').classList.add('hidden');
                 document.getElementById('downloadWrap').classList.remove('hidden');
-                
-                const hits = parseInt(document.getElementById('statHits').textContent);
-                const custom = parseInt(document.getElementById('statCustom').textContent);
-                document.getElementById('hitsCount').textContent = `(${hits})`;
-                document.getElementById('customCount').textContent = `(${custom})`;
-                
-                addLog('════════ KÉSZ ════════', 'finish');
+                document.getElementById('hitsCount').textContent = `(${document.getElementById('statHits').textContent})`;
+                document.getElementById('customCount').textContent = `(${document.getElementById('statCustom').textContent})`;
+                addLog(data.type === 'stopped' ? '════ LEÁLLÍTVA ════' : '════ KÉSZ ════', 'finish');
                 loadHistory();
-            }
-            else if (data.type === 'stopped') {
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('startBtn').innerHTML = '<span>⚡ START CHECKER</span>';
-                document.getElementById('stopBtn').classList.add('hidden');
-                document.getElementById('downloadWrap').classList.remove('hidden');
-                
-                addLog('════════ LEÁLLÍTVA ════════', 'finish');
-                loadHistory();
+                lucide.createIcons();
             }
             else if (data.type === 'active_run') {
                 const run = data.run;
                 currentRunId = run._id;
-                
                 document.getElementById('statsWrap').classList.remove('hidden');
                 document.getElementById('progressWrap').classList.remove('hidden');
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('startBtn').innerHTML = '<span class="loading"></span> Fut...';
                 document.getElementById('stopBtn').classList.remove('hidden');
-                
                 document.getElementById('statHits').textContent = run.hits;
                 document.getElementById('statCustom').textContent = run.custom;
                 document.getElementById('statBad').textContent = run.bad;
                 document.getElementById('statRetry').textContent = run.retries;
-                
                 const pct = Math.round((run.checked / run.total) * 100);
                 document.getElementById('progressBar').style.width = pct + '%';
-                document.getElementById('progressText').textContent = 
-                    `${run.checked} / ${run.total} (${pct}%)`;
-                
-                addLog(`[FOLYTATÁS] Checker fut... (${run.keyword})`, 'info');
+                document.getElementById('progressText').textContent = `${run.checked} / ${run.total} (${pct}%)`;
+                addLog(`[FOLYTATÁS] ${run.keyword} (${run.checked}/${run.total})`, 'info');
+                lucide.createIcons();
             }
         }
 
         function addLog(text, level) {
             const box = document.getElementById('logBox');
-            if (!started) {
-                box.innerHTML = '';
-                started = true;
-            }
-
+            if (!started) { box.innerHTML = ''; started = true; }
             const div = document.createElement('div');
-            div.className = 'log-line animate-fade-in';
-
-            const colors = {
-                'hit': 'log-hit',
-                'custom': 'log-custom',
-                'bad': 'log-bad',
-                'info': 'log-info',
-                'finish': 'log-finish'
-            };
-
-            div.className += ' ' + (colors[level] || 'log-default');
-            
-            const time = new Date().toLocaleTimeString('hu-HU');
-            div.innerHTML = `<span class="log-time">[${time}]</span> ${text}`;
-            
+            div.className = 'log-line animate-fade-in ' + ({'hit':'log-hit','custom':'log-custom','bad':'log-bad','info':'log-info','finish':'log-finish'}[level] || 'log-default');
+            div.innerHTML = `<span class="log-time">[${new Date().toLocaleTimeString('hu-HU')}]</span> ${text}`;
             box.appendChild(div);
-
             logCount++;
             document.getElementById('logCount').textContent = logCount + ' sor';
-
             box.scrollTop = box.scrollHeight;
-
-            while (box.children.length > 2000) {
-                box.removeChild(box.firstChild);
-            }
+            while (box.children.length > 2000) box.removeChild(box.firstChild);
         }
 
         function clearLog() {
-            document.getElementById('logBox').innerHTML = 
-                '<div class="text-white/30 text-center py-20 text-base">' +
-                '<div class="text-4xl mb-4">💤</div><p>Log törölve</p></div>';
-            logCount = 0;
-            started = false;
+            document.getElementById('logBox').innerHTML = '<div class="text-white/15 text-center py-20 text-sm flex flex-col items-center gap-4"><i data-lucide="terminal" class="w-10 h-10 opacity-20"></i><p>Log törölve</p></div>';
+            logCount = 0; started = false;
             document.getElementById('logCount').textContent = '0 sor';
+            lucide.createIcons();
         }
 
-        // PREVIEW FUNKCIÓK
         function togglePreview(type) {
             const preview = document.getElementById('livePreview');
-            
-            if (type === null || currentPreview === type) {
-                preview.classList.add('hidden');
-                currentPreview = null;
-                return;
-            }
-
-            currentPreview = type;
-            preview.classList.remove('hidden');
-            updatePreview(type);
+            if (type === null || currentPreview === type) { preview.classList.add('hidden'); currentPreview = null; return; }
+            currentPreview = type; preview.classList.remove('hidden'); updatePreview(type);
         }
 
         function updatePreview(type) {
             const box = document.getElementById('previewBox');
-            const title = document.getElementById('previewTitle');
-            const count = document.getElementById('previewCount');
-            
             const data = type === 'hits' ? liveHits : liveCustom;
-            
-            title.textContent = type === 'hits' ? '✅ Live Hits' : '📋 Live Custom';
-            count.textContent = `(${data.length})`;
-            
-            if (data.length === 0) {
-                box.innerHTML = '<div class="text-white/30 text-center py-20">Még nincs találat...</div>';
-                return;
-            }
-
-            box.innerHTML = data.map((item, index) => {
-                if (type === 'hits') {
-                    return `
-                        <div class="p-3 bg-green-500/10 border border-green-500/30 rounded-lg animate-fade-in">
-                            <div class="text-green-400 font-bold mb-1">
-                                #${index + 1} • ${item.email}:${item.password}
-                            </div>
-                            <div class="text-xs text-white/60">
-                                📍 ${item.country || 'N/A'} | 
-                                👤 ${item.name || 'N/A'} | 
-                                📅 ${item.birthdate || 'N/A'} | 
-                                📧 ${item.mails} emails | 
-                                🕐 ${item.date || 'N/A'}
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    return `
-                        <div class="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg animate-fade-in">
-                            <div class="text-cyan-400 font-bold mb-1">
-                                #${index + 1} • ${item.email}:${item.password}
-                            </div>
-                            <div class="text-xs text-white/60">
-                                📍 ${item.country || 'N/A'} | 
-                                👤 ${item.name || 'N/A'} | 
-                                📅 ${item.birthdate || 'N/A'}
-                            </div>
-                        </div>
-                    `;
-                }
-            }).reverse().join('');
-
+            document.getElementById('previewTitle').textContent = type === 'hits' ? 'Live Hits' : 'Live Custom';
+            document.getElementById('previewCount').textContent = `(${data.length})`;
+            if (data.length === 0) { box.innerHTML = '<div class="text-white/20 text-center py-20 flex flex-col items-center gap-3"><i data-lucide="inbox" class="w-8 h-8"></i>Még nincs találat...</div>'; lucide.createIcons(); return; }
+            const color = type === 'hits' ? 'green' : 'cyan';
+            box.innerHTML = data.map((item, i) => 
+                `<div class="p-3 bg-${color}-500/5 border border-${color}-500/20 rounded-lg animate-fade-in">
+                    <div class="text-${color}-400 font-bold mb-1 flex items-center gap-2">
+                        <span class="text-white/30 text-[10px]">#${i+1}</span>
+                        ${item.email}:${item.password}
+                    </div>
+                    <div class="text-[11px] text-white/40 flex items-center gap-3 flex-wrap">
+                        <span>${item.country || 'N/A'}</span>
+                        <span>·</span>
+                        <span>${item.name || 'N/A'}</span>
+                        <span>·</span>
+                        <span>${item.birthdate || 'N/A'}</span>
+                        ${item.mails ? `<span>·</span><span class="text-${color}-400">${item.mails} emails</span>` : ''}
+                    </div>
+                </div>`
+            ).reverse().join('');
             box.scrollTop = 0;
         }
 
         async function startChecker(e) {
             e.preventDefault();
-            
             const fileInput = document.getElementById('comboFile');
             const keyword = document.getElementById('keyword').value.trim();
             const speed = document.getElementById('speed').value;
-
-            if (!fileInput.files.length) {
-                alert('❌ Válassz egy combo fájlt!');
-                return;
-            }
-            if (!keyword) {
-                alert('❌ Írd be a keywordöt!');
-                return;
-            }
-
+            if (!fileInput.files.length) return alert('Válassz combo fájlt!');
+            if (!keyword) return alert('Írd be a keywordöt!');
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
             formData.append('keyword', keyword);
             formData.append('speed', speed);
-
             const btn = document.getElementById('startBtn');
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Indítás...';
-
             document.getElementById('statsWrap').classList.remove('hidden');
             document.getElementById('progressWrap').classList.remove('hidden');
             document.getElementById('downloadWrap').classList.add('hidden');
             document.getElementById('stopBtn').classList.remove('hidden');
-
-            // Reset
-            logCount = 0;
-            started = false;
-            liveHits = [];
-            liveCustom = [];
-            currentPreview = null;
+            logCount = 0; started = false; liveHits = []; liveCustom = []; currentPreview = null;
             document.getElementById('livePreview').classList.add('hidden');
-            document.getElementById('statHits').textContent = '0';
-            document.getElementById('statCustom').textContent = '0';
-            document.getElementById('statBad').textContent = '0';
-            document.getElementById('statRetry').textContent = '0';
+            ['statHits','statCustom','statBad','statRetry'].forEach(id => document.getElementById(id).textContent = '0');
             document.getElementById('progressBar').style.width = '0%';
-
             try {
-                const res = await fetch('/api/start', {
-                    method: 'POST',
-                    headers: {'Authorization': `Bearer ${token}`},
-                    body: formData
-                });
-                
+                const res = await fetch('/api/start', { method: 'POST', headers: {'Authorization': `Bearer ${token}`}, body: formData });
                 const data = await res.json();
-                
-                if (res.ok) {
-                    currentRunId = data.run_id;
-                    btn.innerHTML = '<span class="loading"></span> Fut...';
-                    addLog(`[START] ${data.total} combo | Keyword: ${keyword} | Sebesség: ${data.speed}s`, 'info');
-                } else {
-                    alert('❌ ' + data.detail);
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>⚡ START CHECKER</span>';
-                    document.getElementById('stopBtn').classList.add('hidden');
-                }
-            } catch(err) {
-                alert('❌ Hiba: ' + err);
-                btn.disabled = false;
-                btn.innerHTML = '<span>⚡ START CHECKER</span>';
-                document.getElementById('stopBtn').classList.add('hidden');
-            }
+                if (res.ok) { currentRunId = data.run_id; btn.innerHTML = '<span class="loading"></span> Fut...'; addLog(`[START] ${data.total} combo | ${keyword} | ${data.speed}s`, 'info'); }
+                else { alert(data.detail); btn.disabled = false; btn.innerHTML = '<i data-lucide="play" class="w-5 h-5"></i><span>START CHECKER</span>'; document.getElementById('stopBtn').classList.add('hidden'); lucide.createIcons(); }
+            } catch(err) { alert('Hiba: ' + err); btn.disabled = false; btn.innerHTML = '<span>START CHECKER</span>'; document.getElementById('stopBtn').classList.add('hidden'); }
         }
 
         async function stopChecker() {
-            if (!confirm('Biztosan leállítod a checkert?')) return;
-
-            try {
-                const res = await fetch('/api/stop', {
-                    method: 'POST',
-                    headers: {'Authorization': `Bearer ${token}`}
-                });
-
-                if (res.ok) {
-                    addLog('[LEÁLLÍTÁS] Várj, leállítás folyamatban...', 'info');
-                } else {
-                    alert('❌ Nem sikerült leállítani');
-                }
-            } catch(err) {
-                alert('❌ Hiba: ' + err);
-            }
+            if (!confirm('Leállítod a checkert?')) return;
+            try { await fetch('/api/stop', { method: 'POST', headers: {'Authorization': `Bearer ${token}`} }); addLog('[LEÁLLÍTÁS...]', 'info'); } catch(err) { alert('Hiba: ' + err); }
         }
 
         async function downloadResults(type) {
-            if (!currentRunId) {
-                alert('❌ Nincs aktív futtatás!');
-                return;
-            }
-
+            if (!currentRunId) return alert('Nincs futtatás!');
             window.location.href = `/api/download/${currentRunId}/${type}`;
         }
 
         async function loadHistory() {
             try {
-                const res = await fetch('/api/runs', {
-                    headers: {'Authorization': `Bearer ${token}`}
-                });
+                const res = await fetch('/api/runs', { headers: {'Authorization': `Bearer ${token}`} });
                 const runs = await res.json();
-                
-                const container = document.getElementById('historyList');
-                
-                if (runs.length === 0) {
-                    container.innerHTML = 
-                        '<div class="text-white/40 text-center py-10">Még nincs futtatásod</div>';
-                    return;
-                }
-
-                container.innerHTML = runs.map(run => {
-                    const status = run.status === 'running' ? 
-                        '<span class="status-running">🔄 Fut</span>' :
-                        '<span class="status-finished">✅ Kész</span>';
-                    
-                    const date = new Date(run.started_at).toLocaleString('hu-HU');
-                    
-                    return `
-                        <div class="history-item">
-                            <div class="flex items-center justify-between">
-                                <div class="flex-1">
-                                    <div class="flex items-center gap-3 mb-2">
-                                        ${status}
-                                        <span class="text-white font-semibold">Keyword: ${run.keyword}</span>
-                                    </div>
-                                    <div class="text-sm text-white/50">
-                                        📅 ${date} • ${run.total} combo • 
-                                        ✅ ${run.hits} hit • 📋 ${run.custom} custom
-                                    </div>
-                                </div>
-                                ${run.status === 'finished' && (run.hits > 0 || run.custom > 0) ? `
-                                    <div class="flex gap-2">
-                                        ${run.hits > 0 ? `
-                                            <a href="/api/download/${run._id}/hits" class="mini-download-btn">
-                                                ⬇️ Hits
-                                            </a>
-                                        ` : ''}
-                                        ${run.custom > 0 ? `
-                                            <a href="/api/download/${run._id}/custom" class="mini-download-btn">
-                                                ⬇️ Custom
-                                            </a>
-                                        ` : ''}
-                                    </div>
-                                ` : ''}
-                            </div>
+                const c = document.getElementById('historyList');
+                if (!runs.length) { c.innerHTML = '<div class="text-white/20 text-center py-10 text-sm flex flex-col items-center gap-3"><i data-lucide="clock" class="w-6 h-6 opacity-30"></i>Még nincs futtatásod</div>'; lucide.createIcons(); return; }
+                c.innerHTML = runs.map(run => {
+                    const st = run.status === 'running' ? '<span class="status-running"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i>Fut</span>' : '<span class="status-finished"><i data-lucide="check" class="w-3 h-3"></i>Kész</span>';
+                    return `<div class="history-item"><div class="flex items-center justify-between"><div class="flex-1">
+                        <div class="flex items-center gap-3 mb-2">${st}<span class="text-white font-semibold text-sm">${run.keyword}</span></div>
+                        <div class="text-xs text-white/30 flex items-center gap-2 flex-wrap">
+                            <span>${new Date(run.started_at).toLocaleString('hu-HU')}</span>
+                            <span>·</span>
+                            <span>${run.total} combo</span>
+                            <span>·</span>
+                            <span class="text-green-400/60">${run.hits} hit</span>
+                            <span>·</span>
+                            <span class="text-cyan-400/60">${run.custom} custom</span>
                         </div>
-                    `;
+                    </div>${run.status === 'finished' && (run.hits > 0 || run.custom > 0) ? `<div class="flex gap-2">
+                        ${run.hits > 0 ? `<a href="/api/download/${run._id}/hits" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Hits</a>` : ''}
+                        ${run.custom > 0 ? `<a href="/api/download/${run._id}/custom" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Custom</a>` : ''}
+                    </div>` : ''}</div></div>`;
                 }).join('');
-                
-            } catch(err) {
-                console.error('History load error:', err);
-            }
+                lucide.createIcons();
+            } catch(err) {}
         }
 
-        function logout() {
-            if (confirm('Biztosan kijelentkezel?')) {
-                localStorage.removeItem('token');
-                localStorage.removeItem('email');
-                window.location.href = '/';
-            }
-        }
+        function logout() { if (confirm('Kijelentkezel?')) { localStorage.clear(); window.location.href = '/'; } }
 
-        // Init
         document.getElementById('checkerForm').addEventListener('submit', startChecker);
         connectWS();
         loadHistory();
