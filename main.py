@@ -1,8 +1,3 @@
-"""
-Hotmail Inboxer - Multi-User Web App
-MongoDB + JWT Auth + Live WebSocket + Modern UI + SPEED CONTROL
-"""
-
 from fastapi import FastAPI, UploadFile, Form, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
