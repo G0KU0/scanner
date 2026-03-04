@@ -16,7 +16,7 @@
                 <div class="text-3xl">⚡</div>
                 <div>
                     <h1 class="text-xl font-black text-white">Hotmail Inboxer</h1>
-                    <p class="text-xs text-white/60">Multi-User Dashboard</p>
+                    <p class="text-xs text-white/60">Multi-User Dashboard v2</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -42,35 +42,58 @@
                 <span>Új Checker Indítása</span>
             </h2>
             
-            <form id="checkerForm" class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-                <div>
-                    <label class="block text-white/80 text-sm mb-2 font-semibold">
-                        📁 Combo fájl (.txt)
-                    </label>
-                    <input type="file" id="comboFile" accept=".txt" required
-                        class="file-input">
-                    <p class="text-xs text-white/40 mt-1">
-                        Formátum: email:jelszó (soronként)
-                    </p>
+            <form id="checkerForm" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- COMBO FÁJL -->
+                    <div>
+                        <label class="block text-white/80 text-sm mb-2 font-semibold">
+                            📁 Combo fájl (.txt)
+                        </label>
+                        <input type="file" id="comboFile" accept=".txt" required
+                            class="file-input">
+                        <p class="text-xs text-white/40 mt-1">
+                            Formátum: email:jelszó (soronként)
+                        </p>
+                    </div>
+                    
+                    <!-- KEYWORD -->
+                    <div>
+                        <label class="block text-white/80 text-sm mb-2 font-semibold">
+                            🔍 Keresett keyword
+                        </label>
+                        <input type="text" id="keyword" required
+                            placeholder="netflix, spotify, playstation..."
+                            class="glass-input">
+                        <p class="text-xs text-white/40 mt-1">
+                            Mit keressünk a levelekben?
+                        </p>
+                    </div>
+                    
+                    <!-- SEBESSÉG (ÚJ!) -->
+                    <div>
+                        <label class="block text-white/80 text-sm mb-2 font-semibold">
+                            ⚡ Sebesség
+                        </label>
+                        <select id="speed" class="glass-input cursor-pointer">
+                            <option value="0.05">🔴 Ultra gyors (0.05s) - KOCKÁZATOS</option>
+                            <option value="0.1">🟠 Nagyon gyors (0.1s)</option>
+                            <option value="0.15">🟡 Gyors (0.15s)</option>
+                            <option value="0.2">🟡 Közepes-gyors (0.2s)</option>
+                            <option value="0.3" selected>🟢 Ajánlott (0.3s)</option>
+                            <option value="0.35">🟢 Biztonságos (0.35s)</option>
+                            <option value="0.5">🟢 Nagyon biztos (0.5s)</option>
+                            <option value="1.0">🔵 Lassú (1.0s)</option>
+                            <option value="2.0">🔵 Ultra lassú (2.0s)</option>
+                        </select>
+                        <p class="text-xs text-white/40 mt-1" id="speedInfo">
+                            ~180 account/perc
+                        </p>
+                    </div>
                 </div>
-                
-                <div>
-                    <label class="block text-white/80 text-sm mb-2 font-semibold">
-                        🔍 Keresett keyword
-                    </label>
-                    <input type="text" id="keyword" required
-                        placeholder="pl. netflix, spotify, playstation..."
-                        class="glass-input">
-                    <p class="text-xs text-white/40 mt-1">
-                        Mit keressünk a levelekben?
-                    </p>
-                </div>
-                
-                <div>
-                    <button type="submit" id="startBtn" class="glass-button w-full">
-                        <span>⚡ START CHECKER</span>
-                    </button>
-                </div>
+
+                <button type="submit" id="startBtn" class="glass-button w-full">
+                    <span>⚡ START CHECKER</span>
+                </button>
             </form>
 
             <!-- PROGRESS (hidden by default) -->
@@ -191,6 +214,18 @@
 
         // Load user info
         document.getElementById('userEmail').textContent = email;
+
+        // Sebesség megjelenítés frissítése
+        document.getElementById('speed').addEventListener('change', function() {
+            const speed = parseFloat(this.value);
+            const accountsPerMin = Math.round(60 / speed);
+            const accountsPerHour = Math.round(3600 / speed);
+            document.getElementById('speedInfo').textContent = 
+                `~${accountsPerMin} account/perc (~${accountsPerHour.toLocaleString()}/óra)`;
+        });
+
+        // Kezdő érték beállítása
+        document.getElementById('speed').dispatchEvent(new Event('change'));
 
         // WebSocket connection
         function connectWS() {
@@ -337,6 +372,7 @@
             
             const fileInput = document.getElementById('comboFile');
             const keyword = document.getElementById('keyword').value.trim();
+            const speed = document.getElementById('speed').value;
 
             if (!fileInput.files.length) {
                 alert('❌ Válassz egy combo fájlt!');
@@ -350,6 +386,7 @@
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
             formData.append('keyword', keyword);
+            formData.append('speed', speed);
 
             const btn = document.getElementById('startBtn');
             btn.disabled = true;
@@ -382,7 +419,7 @@
                 if (res.ok) {
                     currentRunId = data.run_id;
                     btn.innerHTML = '<span class="loading"></span> Fut...';
-                    addLog(`[START] ${data.total} combo betöltve! Keyword: ${keyword}`, 'info');
+                    addLog(`[START] ${data.total} combo | Keyword: ${keyword} | Sebesség: ${data.speed}s/account`, 'info');
                 } else {
                     alert('❌ ' + data.detail);
                     btn.disabled = false;
