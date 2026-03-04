@@ -16,9 +16,6 @@ from database import *
 from auth import *
 from checker import checker_worker_single
 
-# ============================================================
-# FASTAPI APP
-# ============================================================
 app = FastAPI(title="Hotmail Inboxer Multi-User")
 
 app.add_middleware(
@@ -39,17 +36,11 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 # ============================================================
-# STARTUP/SHUTDOWN EVENTS (ÚJ!)
+# STARTUP/SHUTDOWN
 # ============================================================
 @app.on_event("startup")
 async def startup_cleanup():
-    """
-    Server induláskor lezárja az összes 'running' státuszú futtatást.
-    Ez javítja a MongoDB-ben ragadt futtatásokat.
-    """
     print("\n🔧 Startup cleanup...")
-    
-    # Összes 'running' státuszú run lekérése
     from pymongo import MongoClient
     client = MongoClient(os.getenv("MONGODB_URL"))
     db = client.hotmail_checker
@@ -58,18 +49,14 @@ async def startup_cleanup():
     count = 0
     
     for run in running_runs:
-        # Lezárjuk őket (status: finished)
         db.runs.update_one(
             {"_id": run["_id"]},
-            {"$set": {
-                "status": "finished",
-                "finished_at": datetime.utcnow()
-            }}
+            {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
         )
         count += 1
     
     if count > 0:
-        print(f"✅ {count} ragadt futtatás lezárva MongoDB-ben")
+        print(f"✅ {count} ragadt futtatás lezárva")
     else:
         print("✅ Nincs ragadt futtatás")
     
@@ -77,30 +64,21 @@ async def startup_cleanup():
 
 @app.on_event("shutdown")
 async def shutdown_cleanup():
-    """
-    Server leállításkor lezárja az összes futó checkert.
-    """
     print("\n🛑 Shutdown cleanup...")
     
-    # Stop jelzés minden futó checkernek
     with stop_lock:
         for user_id in list(stop_flags.keys()):
             stop_flags[user_id].set()
     
-    # Várunk 2 másodpercet, hogy a szálak lezáródjanak
     await asyncio.sleep(2)
     
-    # MongoDB-ben lezárjuk az összes running-ot
     from pymongo import MongoClient
     client = MongoClient(os.getenv("MONGODB_URL"))
     db = client.hotmail_checker
     
     db.runs.update_many(
         {"status": "running"},
-        {"$set": {
-            "status": "finished",
-            "finished_at": datetime.utcnow()
-        }}
+        {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
     )
     
     print("✅ Minden futtatás lezárva")
@@ -141,9 +119,6 @@ async def register_page(request: Request):
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
-# ============================================================
-# AUTH API
-# ============================================================
 @app.post("/api/register")
 async def register(email: str = Form(...), password: str = Form(...)):
     if len(password) < 6:
@@ -216,7 +191,7 @@ async def stop_checker(current_user = Depends(get_current_user)):
     with stop_lock:
         if user_id in stop_flags:
             stop_flags[user_id].set()
-            return {"status": "stopping", "message": "Checker leállítás folyamatban..."}
+            return {"status": "stopping", "message": "Leállítás..."}
     
     raise HTTPException(status_code=404, detail="Nincs futó checker")
 
@@ -258,7 +233,11 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             hits += 1
             data = result["data"]
             line_text = f"{data['email']}:{data['password']} | Country={data['country']} | Name={data['name']} | Birthdate={data['birthdate']} | Date={data['date']} | Mails={data['mails']}"
+            
+            # MONGODB-BE MENTÉS (azonnal!)
             await add_result_to_run(run_id, "hit", line_text)
+            await add_result_details_to_run(run_id, "hit", data)  # ← ÚJ!
+            
             broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {line_text}"}))
             broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": data}))
             
@@ -266,7 +245,11 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             custom += 1
             data = result["data"]
             line_text = f"{data['email']}:{data['password']} | Country={data['country']} | Name={data['name']} | Birthdate={data['birthdate']}"
+            
+            # MONGODB-BE MENTÉS (azonnal!)
             await add_result_to_run(run_id, "custom", line_text)
+            await add_result_details_to_run(run_id, "custom", data)  # ← ÚJ!
+            
             broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {line_text}"}))
             broadcast_to_user(user_id, json.dumps({"type": "live_custom", "data": data}))
             
@@ -362,13 +345,33 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
     
-    # Aktív run NEM küldjük el (mert startup-nál lezártuk)
-    # Ha mégis running van, az valós futtatás
+    # VISSZATÖLTÉS: ha van aktív run, küldjük el az eddigi találatokat is!
     active_run = await get_active_run(user_id)
     if active_run:
         active_run["_id"] = str(active_run["_id"])
         active_run["started_at"] = active_run["started_at"].isoformat()
-        await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
+        
+        # Küldjük el az aktív run-t
+        await websocket.send_text(json.dumps({
+            "type": "active_run",
+            "run": active_run
+        }))
+        
+        # VISSZATÖLTJÜK az eddigi találatokat (ÚJ!)
+        hit_details = active_run.get("hit_details", [])
+        custom_details = active_run.get("custom_details", [])
+        
+        for hit in hit_details:
+            await websocket.send_text(json.dumps({
+                "type": "live_hit",
+                "data": hit
+            }))
+        
+        for custom in custom_details:
+            await websocket.send_text(json.dumps({
+                "type": "live_custom",
+                "data": custom
+            }))
     
     try:
         while True:
@@ -383,18 +386,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
                     del user_connections[user_id]
 
 # ============================================================
-# GRACEFUL SHUTDOWN HANDLER (ÚJ!)
+# GRACEFUL SHUTDOWN
 # ============================================================
 def signal_handler(sig, frame):
-    """SIGTERM/SIGINT kezelő (Render.com deploy esetén)"""
-    print("\n🛑 Signal received, shutting down gracefully...")
+    print("\n🛑 Signal received, shutting down...")
     
-    # Stop jelzés minden checkernek
     with stop_lock:
         for user_id in list(stop_flags.keys()):
             stop_flags[user_id].set()
     
-    # MongoDB cleanup
     from pymongo import MongoClient
     client = MongoClient(os.getenv("MONGODB_URL"))
     db = client.hotmail_checker
@@ -404,10 +404,9 @@ def signal_handler(sig, frame):
     )
     client.close()
     
-    print("✅ Cleanup done, exiting...")
+    print("✅ Cleanup done")
     sys.exit(0)
 
-# Signal handler regisztrálása
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -419,9 +418,9 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     print("\n" + "="*60)
-    print("  🚀 Hotmail Inboxer - Multi-User v3.1")
+    print("  🚀 Hotmail Inboxer - Multi-User v3.2")
     print(f"  📡 http://0.0.0.0:{port}")
-    print(f"  ⚡ MongoDB Cleanup: ENABLED")
+    print(f"  💾 Live MongoDB Save: ENABLED")
     print("="*60 + "\n")
     
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
