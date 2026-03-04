@@ -40,7 +40,7 @@ def upload_to_external_api(content: str, filename: str) -> str:
     except: 
         pass
     
-    # 2. Opció: Transfer.sh (Közvetlen fájl letöltés)
+    # 2. Opció: Transfer.sh (Közvetlen fájl letöltés 14 napig)
     try:
         res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=15)
         if res.status_code == 200:
@@ -48,7 +48,7 @@ def upload_to_external_api(content: str, filename: str) -> str:
     except: 
         pass
     
-    # 3. Opció: GoFile API (Korlátlan)
+    # 3. Opció: GoFile API (Korlátlan, de letöltő oldalt ad)
     try:
         server = requests.get("https://api.gofile.io/servers").json()["data"]["servers"][0]["name"]
         files = {'file': (filename, content.encode('utf-8'))}
@@ -69,8 +69,14 @@ async def lifespan(app: FastAPI):
     client = MongoClient(os.getenv("MONGODB_URL"))
     db = client.hotmail_checker
     
-    # Ha van beragadt running, azt gyorsan lezárjuk
-    db.runs.update_many({"status": "running"}, {"$set": {"status": "finished", "finished_at": datetime.utcnow()}})
+    running_runs = db.runs.find({"status": "running"})
+    
+    # Ha van beragadt running, azt gyorsan lezárjuk linkek nélkül (hogy ne fagyjon be)
+    for run in running_runs:
+        db.runs.update_one(
+            {"_id": run["_id"]},
+            {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
+        )
     client.close()
     
     yield
@@ -132,6 +138,10 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
+    
+    # 🔴 TÖRLÜK AZ ÖSSZES RÉGI KERESÉST A KÜLSŐ API-RÓL (MONGODB)
+    await delete_old_runs(user_id)
+    
     run_id = await create_run(user_id, keyword, len(lines))
     
     with stop_lock: stop_flags[user_id] = asyncio.Event()
@@ -187,7 +197,8 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         elif result["status"] == "bad":
             bad += 1
             broadcast_to_user(user_id, json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}))
-        else: retries += 1
+        else: 
+            retries += 1
         
         await update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries})
         broadcast_to_user(user_id, json.dumps({"type": "stats", "run_id": run_id, "checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries, "total": total}))
@@ -196,15 +207,23 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     # === FELTÖLTÉS KÜLSŐ API-RA ===
     broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények feltöltése külső tárhelyre (Ne zárd be az oldalt)..."}))
     
+    # 🔴 HIBÁK KIKÜSZÖBÖLÉSE: Ellenőrizzük, hogy létezik-e a run 🔴
     final_run = await get_run(run_id)
-    hit_lines = final_run.get("hit_lines", [])
-    custom_lines = final_run.get("custom_lines", [])
     
-    hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt") if hit_lines else None
-    custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt") if custom_lines else None
+    hits_url = None
+    custom_url = None
     
-    # === MongoDB TISZTÍTÁSA ÉS LEZÁRÁSA ===
-    await finish_and_clean_run(run_id, hits_url, custom_url)
+    if final_run:
+        hit_lines = final_run.get("hit_lines", [])
+        custom_lines = final_run.get("custom_lines", [])
+        
+        if hit_lines:
+            hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt")
+        if custom_lines:
+            custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt")
+        
+        # === MongoDB TISZTÍTÁSA ÉS LEZÁRÁSA ===
+        await finish_and_clean_run(run_id, hits_url, custom_url)
     
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Feltöltés Kész! Hits: {hits} | Custom: {custom}"}))
