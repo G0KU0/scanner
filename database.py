@@ -1,6 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
-from typing import Optional
 import os
 from dotenv import load_dotenv
 
@@ -38,15 +37,15 @@ async def create_user(email: str, hashed_password: str):
 async def get_user_by_email(email: str):
     return await users_collection.find_one({"email": email})
 
+# 🔥 ÚJ FUNKCIÓ: Mindig csak az utolsó futtatást tartjuk meg a memóriában!
 async def delete_old_runs(user_id: str):
     """
-    KÜLSŐ API TÁRHELY TISZTÍTÁSA: 
-    Törli a felhasználó összes korábbi futtatását a DB-ből!
-    Így sosem telik be a MongoDB tárhely.
+    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből!
+    Így mindig csak a legújabb (1 db) marad meg az előzményekben.
     """
     try:
         await runs_collection.delete_many({"user_id": user_id})
-        print(f"🗑️ Előző futtatások törölve a külső adatbázisból (User: {user_id})")
+        print(f"🗑️ Előző futtatások véglegesen törölve (User: {user_id})")
     except Exception as e:
         print(f"❌ Hiba a régi futtatások törlésekor: {e}")
 
@@ -65,8 +64,8 @@ async def create_run(user_id: str, keyword: str, total: int):
         "custom_lines": [],
         "hit_details": [],
         "custom_details": [],
-        "hits_url": None,
-        "custom_url": None,
+        "hits_url": None,     # Külső API link
+        "custom_url": None,   # Külső API link
         "started_at": datetime.utcnow(),
         "finished_at": None
     }
@@ -90,9 +89,8 @@ async def update_run_stats(run_id: str, stats: dict):
     except:
         pass
 
-# 🔴 ÚJ FUNKCIÓ (F5 + STOP bugfix) 🔴
+# 🔥 ÚJ FUNKCIÓ: Azonnali státusz frissítés (F5 és Stop gomb fix)
 async def update_run_status_only(run_id: str, status: str):
-    """Csak a státuszt frissíti azonnal, API feltöltés előtt"""
     from bson import ObjectId
     try:
         await runs_collection.update_one(
@@ -133,8 +131,7 @@ async def get_user_runs(user_id: str):
 
 async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
     """
-    Ez az a funkció, ami MENTI A KÜLSŐ API LINKET, 
-    majd TÖRLI a Mongo-ból a hatalmas szövegeket, hogy 0MB-ot foglaljanak el.
+    Menti a Külső API linket, és TÖRLI a MongoDB-ből a szöveget.
     """
     from bson import ObjectId
     try:
