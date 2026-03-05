@@ -139,7 +139,7 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     
     user_id = str(current_user["_id"])
     
-    # 🔴 TÖRLÜK AZ ÖSSZES RÉGI KERESÉST A KÜLSŐ API-RÓL (MONGODB)
+    # 🔴 ITT TÖRLÜK A RÉGI ADATOKAT A MONGODB-BŐL (csak az API linkek maradnak, ha voltak)
     await delete_old_runs(user_id)
     
     run_id = await create_run(user_id, keyword, len(lines))
@@ -232,7 +232,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if user_id in stop_flags: del stop_flags[user_id]
 
 # ============================================================
-# API ENDPOINTS & DOWNLOAD
+# API ENDPOINTS & DOWNLOAD (403 FORBIDDEN FIX)
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
@@ -243,16 +243,25 @@ async def get_user_runs_list(current_user = Depends(get_current_user)):
         if r.get("finished_at"): r["finished_at"] = r["finished_at"].isoformat()
     return runs
 
-@app.get("/api/download/{run_id}/{type}")
-async def download_results(run_id: str, type: str, current_user = Depends(get_current_user)):
+# 🔴 Ezt alakítottam át: nem dob 403-at, ha token nélkül hívják be! Csak JSON URL-t ad vissza
+@app.get("/api/get_download_url/{run_id}/{type}")
+async def get_download_url(run_id: str, type: str, current_user = Depends(get_current_user)):
     run = await get_run(run_id)
     if not run or run["user_id"] != str(current_user["_id"]): raise HTTPException(status_code=404)
     
-    # HA VAN KÜLSŐ API LINK, ÁTIRÁNYÍTJUK!
-    if type == "hits" and run.get("hits_url"): return RedirectResponse(url=run["hits_url"])
-    if type == "custom" and run.get("custom_url"): return RedirectResponse(url=run["custom_url"])
+    # HA VAN KÜLSŐ API LINK, ADJUK VISSZA AZT!
+    if type == "hits" and run.get("hits_url"): return {"url": run["hits_url"]}
+    if type == "custom" and run.get("custom_url"): return {"url": run["custom_url"]}
     
-    # Ha mégis a Mongo-ban van (pl még fut), adjuk vissza azt:
+    # HA MÉG FUT, ÉS NINCS API LINK (Közvetlen letöltés txt-ként)
+    return {"url": f"/api/download_direct/{run_id}/{type}?token={current_user['email']}"}
+
+@app.get("/api/download_direct/{run_id}/{type}")
+async def download_direct(run_id: str, type: str):
+    # Ez nyitja meg a böngészőben txt-ként ha futás közben akarod
+    run = await get_run(run_id)
+    if not run: raise HTTPException(status_code=404)
+    
     lines = run.get("hit_lines" if type == "hits" else "custom_lines", [])
     return PlainTextResponse(content="\n".join(lines) if lines else "Nincs eredmény", headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'})
 
