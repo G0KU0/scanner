@@ -37,21 +37,6 @@ async def create_user(email: str, hashed_password: str):
 async def get_user_by_email(email: str):
     return await users_collection.find_one({"email": email})
 
-async def delete_old_runs(user_id: str, keep_run_id: str):
-    """
-    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből,
-    KIVÉVE azt az egyet (keep_run_id), ami most lett kész és az előzményekbe kerül!
-    """
-    from bson import ObjectId
-    try:
-        await runs_collection.delete_many({
-            "user_id": user_id,
-            "_id": {"$ne": ObjectId(keep_run_id)}
-        })
-        print(f"🗑️ Előző futtatások véglegesen törölve, kivéve az utolsót. (User: {user_id})")
-    except Exception as e:
-        print(f"❌ Hiba a régi futtatások törlésekor: {e}")
-
 async def create_run(user_id: str, keyword: str, total: int):
     run = {
         "user_id": user_id,
@@ -74,6 +59,22 @@ async def create_run(user_id: str, keyword: str, total: int):
     }
     result = await runs_collection.insert_one(run)
     return str(result.inserted_id)
+
+# 🔴 JAVÍTOTT TÖRLŐ FUNKCIÓ 🔴
+async def delete_old_runs(user_id: str, keep_run_id: str):
+    """
+    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből,
+    KIVÉVE azt az egyet (keep_run_id), amit most hoztunk létre!
+    """
+    from bson import ObjectId
+    try:
+        await runs_collection.delete_many({
+            "user_id": user_id,
+            "_id": {"$ne": ObjectId(keep_run_id)}
+        })
+        print(f"🗑️ Előző futtatások véglegesen törölve, kivéve a mostanit. (User: {user_id})")
+    except Exception as e:
+        print(f"❌ Hiba a régi futtatások törlésekor: {e}")
 
 async def get_run(run_id: str):
     from bson import ObjectId
@@ -128,12 +129,8 @@ async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
         pass
 
 async def get_user_finished_runs(user_id: str):
-    """
-    CSAK a BEFEJEZETT (finished) kereséseket kéri le.
-    (Ami fut, az nem kerül az előzményekbe!)
-    """
     cursor = runs_collection.find({"user_id": user_id, "status": "finished"}).sort("started_at", -1)
-    return await cursor.to_list(length=1)  # KIZÁRÓLAG 1-et ad vissza (a legutóbbit)
+    return await cursor.to_list(length=1)
 
 async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
     from bson import ObjectId
