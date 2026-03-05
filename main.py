@@ -24,38 +24,26 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 # ============================================================
-# KÜLSŐ API FELTÖLTŐ FUNKCIÓ (Ingyenes, No-Auth API-k)
+# KÜLSŐ API FELTÖLTŐ FUNKCIÓ
 # ============================================================
 def upload_to_external_api(content: str, filename: str) -> str:
-    """Feltölti a hits.txt tartalmat egy külső szerverre és visszaadja a linket."""
     if not content or len(content.strip()) == 0: 
         return None
     
-    # 1. Opció: Pastebin.fi (Nyers szöveg, a legjobb!)
+    # 1. Opció: Pastebin.fi
     try:
-        res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=10)
+        res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=5)
         if res.status_code == 200:
             key = res.json().get("key")
             return f"https://pastebin.fi/raw/{key}"
-    except: 
-        pass
+    except: pass
     
-    # 2. Opció: Transfer.sh (Közvetlen fájl letöltés 14 napig)
+    # 2. Opció: Transfer.sh
     try:
-        res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=15)
+        res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=8)
         if res.status_code == 200:
             return res.text.strip()
-    except: 
-        pass
-    
-    # 3. Opció: GoFile API (Korlátlan, de letöltő oldalt ad)
-    try:
-        server = requests.get("https://api.gofile.io/servers").json()["data"]["servers"][0]["name"]
-        files = {'file': (filename, content.encode('utf-8'))}
-        res = requests.post(f"https://{server}.gofile.io/uploadFile", files=files).json()
-        return res["data"]["downloadPage"]
-    except: 
-        pass
+    except: pass
     
     return None
 
@@ -70,17 +58,13 @@ async def lifespan(app: FastAPI):
     db = client.hotmail_checker
     
     running_runs = db.runs.find({"status": "running"})
-    
-    # Ha van beragadt running, azt gyorsan lezárjuk linkek nélkül (hogy ne fagyjon be)
     for run in running_runs:
         db.runs.update_one(
             {"_id": run["_id"]},
             {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
         )
     client.close()
-    
     yield
-    
     print("\n🛑 Shutdown cleanup...")
     with stop_lock:
         for user_id in list(stop_flags.keys()): 
@@ -138,8 +122,6 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
-    
-    # 🔴 ITT TÖRLÜK A RÉGI ADATOKAT A MONGODB-BŐL (csak az API linkek maradnak, ha voltak)
     await delete_old_runs(user_id)
     
     run_id = await create_run(user_id, keyword, len(lines))
@@ -204,35 +186,29 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         broadcast_to_user(user_id, json.dumps({"type": "stats", "run_id": run_id, "checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries, "total": total}))
         await asyncio.sleep(speed)
     
-    # === FELTÖLTÉS KÜLSŐ API-RA ===
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények feltöltése külső tárhelyre (Ne zárd be az oldalt)..."}))
+    # 🔴 AZONNALI STÁTUSZ FRISSÍTÉS MONGODB-BEN (Hogy F5 esetén is "kész" legyen azonnal)
+    await update_run_status_only(run_id, "finished")
     
-    # 🔴 HIBÁK KIKÜSZÖBÖLÉSE: Ellenőrizzük, hogy létezik-e a run 🔴
-    final_run = await get_run(run_id)
-    
-    hits_url = None
-    custom_url = None
-    
-    if final_run:
-        hit_lines = final_run.get("hit_lines", [])
-        custom_lines = final_run.get("custom_lines", [])
-        
-        if hit_lines:
-            hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt")
-        if custom_lines:
-            custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt")
-        
-        # === MongoDB TISZTÍTÁSA ÉS LEZÁRÁSA ===
-        await finish_and_clean_run(run_id, hits_url, custom_url)
-    
+    if hits > 0 or custom > 0:
+        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények mentése... (Ne zárd be)"}))
+        final_run = await get_run(run_id)
+        if final_run:
+            hit_lines = final_run.get("hit_lines", [])
+            custom_lines = final_run.get("custom_lines", [])
+            hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt") if hit_lines else None
+            custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt") if custom_lines else None
+            await finish_and_clean_run(run_id, hits_url, custom_url)
+    else:
+        await finish_and_clean_run(run_id, None, None)
+
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Feltöltés Kész! Hits: {hits} | Custom: {custom}"}))
+    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom}"}))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
     with stop_lock:
         if user_id in stop_flags: del stop_flags[user_id]
 
 # ============================================================
-# API ENDPOINTS & DOWNLOAD (403 FORBIDDEN FIX)
+# API ENDPOINTS & DOWNLOAD
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
@@ -243,25 +219,18 @@ async def get_user_runs_list(current_user = Depends(get_current_user)):
         if r.get("finished_at"): r["finished_at"] = r["finished_at"].isoformat()
     return runs
 
-# 🔴 Ezt alakítottam át: nem dob 403-at, ha token nélkül hívják be! Csak JSON URL-t ad vissza
 @app.get("/api/get_download_url/{run_id}/{type}")
 async def get_download_url(run_id: str, type: str, current_user = Depends(get_current_user)):
     run = await get_run(run_id)
     if not run or run["user_id"] != str(current_user["_id"]): raise HTTPException(status_code=404)
-    
-    # HA VAN KÜLSŐ API LINK, ADJUK VISSZA AZT!
     if type == "hits" and run.get("hits_url"): return {"url": run["hits_url"]}
     if type == "custom" and run.get("custom_url"): return {"url": run["custom_url"]}
-    
-    # HA MÉG FUT, ÉS NINCS API LINK (Közvetlen letöltés txt-ként)
     return {"url": f"/api/download_direct/{run_id}/{type}?token={current_user['email']}"}
 
 @app.get("/api/download_direct/{run_id}/{type}")
 async def download_direct(run_id: str, type: str):
-    # Ez nyitja meg a böngészőben txt-ként ha futás közben akarod
     run = await get_run(run_id)
     if not run: raise HTTPException(status_code=404)
-    
     lines = run.get("hit_lines" if type == "hits" else "custom_lines", [])
     return PlainTextResponse(content="\n".join(lines) if lines else "Nincs eredmény", headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'})
 
@@ -300,14 +269,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
 
-# ============================================================
-# START
-# ============================================================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "="*60)
-    print("  🚀 Hotmail Inboxer - API STORAGE EDITION")
+    print("  🚀 Hotmail Inboxer - API STORAGE BUGFIXED")
     print(f"  📡 http://0.0.0.0:{port}")
     print("="*60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
