@@ -37,15 +37,18 @@ async def create_user(email: str, hashed_password: str):
 async def get_user_by_email(email: str):
     return await users_collection.find_one({"email": email})
 
-# 🔥 ÚJ FUNKCIÓ: Mindig csak az utolsó futtatást tartjuk meg a memóriában!
-async def delete_old_runs(user_id: str):
+async def delete_old_runs(user_id: str, keep_run_id: str):
     """
-    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből!
-    Így mindig csak a legújabb (1 db) marad meg az előzményekben.
+    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből,
+    KIVÉVE azt az egyet (keep_run_id), ami most lett kész és az előzményekbe kerül!
     """
+    from bson import ObjectId
     try:
-        await runs_collection.delete_many({"user_id": user_id})
-        print(f"🗑️ Előző futtatások véglegesen törölve (User: {user_id})")
+        await runs_collection.delete_many({
+            "user_id": user_id,
+            "_id": {"$ne": ObjectId(keep_run_id)}
+        })
+        print(f"🗑️ Előző futtatások véglegesen törölve, kivéve az utolsót. (User: {user_id})")
     except Exception as e:
         print(f"❌ Hiba a régi futtatások törlésekor: {e}")
 
@@ -64,8 +67,8 @@ async def create_run(user_id: str, keyword: str, total: int):
         "custom_lines": [],
         "hit_details": [],
         "custom_details": [],
-        "hits_url": None,     # Külső API link
-        "custom_url": None,   # Külső API link
+        "hits_url": None,
+        "custom_url": None,
         "started_at": datetime.utcnow(),
         "finished_at": None
     }
@@ -89,7 +92,6 @@ async def update_run_stats(run_id: str, stats: dict):
     except:
         pass
 
-# 🔥 ÚJ FUNKCIÓ: Azonnali státusz frissítés (F5 és Stop gomb fix)
 async def update_run_status_only(run_id: str, status: str):
     from bson import ObjectId
     try:
@@ -125,14 +127,15 @@ async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
     except:
         pass
 
-async def get_user_runs(user_id: str):
-    cursor = runs_collection.find({"user_id": user_id}).sort("started_at", -1)
-    return await cursor.to_list(length=100)
+async def get_user_finished_runs(user_id: str):
+    """
+    CSAK a BEFEJEZETT (finished) kereséseket kéri le.
+    (Ami fut, az nem kerül az előzményekbe!)
+    """
+    cursor = runs_collection.find({"user_id": user_id, "status": "finished"}).sort("started_at", -1)
+    return await cursor.to_list(length=1)  # KIZÁRÓLAG 1-et ad vissza (a legutóbbit)
 
 async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
-    """
-    Menti a Külső API linket, és TÖRLI a MongoDB-ből a szöveget.
-    """
     from bson import ObjectId
     try:
         update_data = {
