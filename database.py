@@ -65,8 +65,8 @@ async def create_run(user_id: str, keyword: str, total: int):
         "custom_lines": [],
         "hit_details": [],
         "custom_details": [],
-        "hits_url": None,     # KÜLSŐ API LINK HELYE
-        "custom_url": None,   # KÜLSŐ API LINK HELYE
+        "hits_url": None,
+        "custom_url": None,
         "started_at": datetime.utcnow(),
         "finished_at": None
     }
@@ -86,6 +86,21 @@ async def update_run_stats(run_id: str, stats: dict):
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$set": stats}
+        )
+    except:
+        pass
+
+# 🔴 ÚJ FUNKCIÓ (F5 + STOP bugfix) 🔴
+async def update_run_status_only(run_id: str, status: str):
+    """Csak a státuszt frissíti azonnal, API feltöltés előtt"""
+    from bson import ObjectId
+    try:
+        await runs_collection.update_one(
+            {"_id": ObjectId(run_id)},
+            {"$set": {
+                "status": status,
+                "finished_at": datetime.utcnow() if status == "finished" else None
+            }}
         )
     except:
         pass
@@ -113,7 +128,6 @@ async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
         pass
 
 async def get_user_runs(user_id: str):
-    # Itt lekérjük az összes régi keresést, mert most már maradhatnak a Mongo-ban, mivel töröltük belőlük a sok adatot!
     cursor = runs_collection.find({"user_id": user_id}).sort("started_at", -1)
     return await cursor.to_list(length=100)
 
@@ -136,10 +150,10 @@ async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
             {
                 "$set": update_data,
                 "$unset": {
-                    "hit_lines": "",       # TÖRLÉS a DB-ből!
-                    "custom_lines": "",    # TÖRLÉS a DB-ből!
-                    "hit_details": "",     # TÖRLÉS a DB-ből!
-                    "custom_details": ""   # TÖRLÉS a DB-ből!
+                    "hit_lines": "",       
+                    "custom_lines": "",    
+                    "hit_details": "",     
+                    "custom_details": ""   
                 }
             }
         )
