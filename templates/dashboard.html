@@ -115,6 +115,7 @@
                 </div>
             </form>
 
+            <!-- PROGRESS -->
             <div id="progressWrap" class="mt-6 hidden">
                 <div class="flex justify-between text-xs text-white/40 mb-2 font-medium">
                     <span class="flex items-center gap-1">
@@ -236,7 +237,7 @@
                     <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
                         <i data-lucide="archive" class="w-4 h-4 text-indigo-400"></i>
                     </div>
-                    <span>Előzmények</span>
+                    <span>Legutóbbi Eredmény</span>
                 </h2>
                 <button onclick="loadHistory()" 
                     class="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/50 rounded-lg transition text-xs font-semibold uppercase tracking-wider">
@@ -303,7 +304,7 @@
 
         function handleMessage(data) {
             if (data.type === 'stats' || data.type === 'log' || data.type === 'active_run') {
-                if (!data.text || !data.text.includes('KÉSZ') && !data.text.includes('LEÁLLÍTVA')) {
+                if (!data.text || (!data.text.includes('KÉSZ') && !data.text.includes('LEÁLLÍTVA') && !data.text.includes('Feltöltés'))) {
                     document.getElementById('statsWrap').classList.remove('hidden');
                     document.getElementById('progressWrap').classList.remove('hidden');
                     document.getElementById('stopBtn').classList.remove('hidden');
@@ -447,10 +448,25 @@
             try { await fetch('/api/stop', { method: 'POST', headers: {'Authorization': `Bearer ${token}`} }); addLog('[LEÁLLÍTÁS FOLYAMATBAN...]', 'info'); } catch(err) { alert('Hiba: ' + err); }
         }
 
-        // 🔴🔴🔴 ÚJ: Letöltés ÚJ LAPON nyílik meg! 🔴🔴🔴
-        async function downloadResults(type) {
-            if (!currentRunId) return alert('Nincs futtatás!');
-            window.open(`/api/download/${currentRunId}/${type}`, '_blank');
+        // 🔴 JAVÍTOTT LETÖLTÉS GOMB! (Új lapon nyílik az API link!)
+        async function downloadResults(type, runId = null) {
+            const targetRunId = runId || currentRunId;
+            if (!targetRunId) return alert('Nincs futtatás!');
+            
+            try {
+                const res = await fetch(`/api/get_download_url/${targetRunId}/${type}`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                const data = await res.json();
+                
+                if (res.ok && data.url) {
+                    window.open(data.url, '_blank');
+                } else {
+                    alert('Nincs találat vagy hiba történt a letöltéskor!');
+                }
+            } catch (err) {
+                alert('Hiba a letöltéskor: ' + err);
+            }
         }
 
         async function loadHistory() {
@@ -458,7 +474,7 @@
                 const res = await fetch('/api/runs', { headers: {'Authorization': `Bearer ${token}`} });
                 const runs = await res.json();
                 const c = document.getElementById('historyList');
-                if (!runs.length) { c.innerHTML = '<div class="text-white/20 text-center py-10 text-sm flex flex-col items-center gap-3"><i data-lucide="clock" class="w-6 h-6 opacity-30"></i>Még nincs futtatásod</div>'; lucide.createIcons(); return; }
+                if (!runs.length) { c.innerHTML = '<div class="text-white/20 text-center py-10 text-sm flex flex-col items-center gap-3"><i data-lucide="clock" class="w-6 h-6 opacity-30"></i>Még nem indítottál keresést...</div>'; lucide.createIcons(); return; }
                 c.innerHTML = runs.map(run => {
                     const st = run.status === 'running' ? '<span class="status-running"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i>Fut</span>' : '<span class="status-finished"><i data-lucide="check" class="w-3 h-3"></i>Kész</span>';
                     return `<div class="history-item"><div class="flex items-center justify-between"><div class="flex-1">
@@ -473,8 +489,8 @@
                             <span class="text-cyan-400/60">${run.custom} custom</span>
                         </div>
                     </div>${run.status === 'finished' && (run.hits > 0 || run.custom > 0) ? `<div class="flex gap-2">
-                        ${run.hits > 0 ? `<a href="/api/download/${run._id}/hits" target="_blank" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Hits</a>` : ''}
-                        ${run.custom > 0 ? `<a href="/api/download/${run._id}/custom" target="_blank" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Custom</a>` : ''}
+                        ${run.hits > 0 ? `<button onclick="downloadResults('hits', '${run._id}')" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Hits</button>` : ''}
+                        ${run.custom > 0 ? `<button onclick="downloadResults('custom', '${run._id}')" class="mini-download-btn flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i>Custom</button>` : ''}
                     </div>` : ''}</div></div>`;
                 }).join('');
                 lucide.createIcons();
