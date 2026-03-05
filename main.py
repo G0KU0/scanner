@@ -24,7 +24,7 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 # ============================================================
-# KÜLSŐ API FELTÖLTŐ FUNKCIÓ
+# KÜLSŐ API FELTÖLTŐ FUNKCIÓ (Pastebin / Transfer.sh)
 # ============================================================
 def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0: 
@@ -122,6 +122,8 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
+    
+    # 🔴 ITT TÖRLÜK A RÉGI ADATOKAT A MONGODB-BŐL 🔴
     await delete_old_runs(user_id)
     
     run_id = await create_run(user_id, keyword, len(lines))
@@ -190,7 +192,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     await update_run_status_only(run_id, "finished")
     
     if hits > 0 or custom > 0:
-        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények mentése... (Ne zárd be)"}))
+        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények feltöltése (Ne zárd be az oldalt)..."}))
         final_run = await get_run(run_id)
         if final_run:
             hit_lines = final_run.get("hit_lines", [])
@@ -208,7 +210,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if user_id in stop_flags: del stop_flags[user_id]
 
 # ============================================================
-# API ENDPOINTS & DOWNLOAD
+# API ENDPOINTS & DOWNLOAD (403 FORBIDDEN FIX)
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
