@@ -120,6 +120,8 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
+    await delete_old_runs(user_id)
+    
     run_id = await create_run(user_id, keyword, len(lines))
     
     with stop_lock: stop_flags[user_id] = asyncio.Event()
@@ -157,7 +159,8 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if result["status"] == "hit":
             hits += 1
             d = result["data"]
-            lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']} | Date={d['date']} | Mails={d['mails']}"
+            # 🟢 ITT KERÜLT BE A DÁTUM A KIMENTETT TXT FÁJLBA! 🟢
+            lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']} | Mails={d['mails']} | LastMail={d['date']}"
             await add_result_to_run(run_id, "hit", lt)
             await add_result_details_to_run(run_id, "hit", d)
             broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}))
@@ -196,10 +199,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     else:
         await finish_and_clean_run(run_id, None, None)
 
-    # 🔴 ITT TÖRLÜK A RÉGI KERESÉSEKET 🔴 
-    # (Megtartjuk ezt a most befejezett `run_id`-t)
-    await delete_old_runs(user_id, keep_run_id=run_id)
-
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom}"}))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
@@ -211,10 +210,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
-    """
-    A dashboard frissítésekor csak az 1 db legutóbbi BEFEJEZETT (finished)
-    keresést adjuk vissza, így a futó keresés NEM jelenik meg lent az előzményekben!
-    """
     runs = await get_user_finished_runs(str(current_user["_id"]))
     for r in runs:
         r["_id"] = str(r["_id"])
