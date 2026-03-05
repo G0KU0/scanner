@@ -24,13 +24,12 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 # ============================================================
-# KÜLSŐ API FELTÖLTŐ FUNKCIÓ (Pastebin / Transfer.sh)
+# KÜLSŐ API FELTÖLTŐ FUNKCIÓ
 # ============================================================
 def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0: 
         return None
     
-    # 1. Opció: Pastebin.fi
     try:
         res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=5)
         if res.status_code == 200:
@@ -38,7 +37,6 @@ def upload_to_external_api(content: str, filename: str) -> str:
             return f"https://pastebin.fi/raw/{key}"
     except: pass
     
-    # 2. Opció: Transfer.sh
     try:
         res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=8)
         if res.status_code == 200:
@@ -122,10 +120,6 @@ async def start_checker(file: UploadFile, keyword: str = Form(...), speed: float
     if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
     
     user_id = str(current_user["_id"])
-    
-    # 🔴 ITT TÖRLÜK A RÉGI ADATOKAT A MONGODB-BŐL 🔴
-    await delete_old_runs(user_id)
-    
     run_id = await create_run(user_id, keyword, len(lines))
     
     with stop_lock: stop_flags[user_id] = asyncio.Event()
@@ -188,7 +182,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         broadcast_to_user(user_id, json.dumps({"type": "stats", "run_id": run_id, "checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries, "total": total}))
         await asyncio.sleep(speed)
     
-    # 🔴 AZONNALI STÁTUSZ FRISSÍTÉS MONGODB-BEN (Hogy F5 esetén is "kész" legyen azonnal)
     await update_run_status_only(run_id, "finished")
     
     if hits > 0 or custom > 0:
@@ -203,6 +196,10 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     else:
         await finish_and_clean_run(run_id, None, None)
 
+    # 🔴 ITT TÖRLÜK A RÉGI KERESÉSEKET 🔴 
+    # (Megtartjuk ezt a most befejezett `run_id`-t)
+    await delete_old_runs(user_id, keep_run_id=run_id)
+
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom}"}))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
@@ -210,11 +207,15 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if user_id in stop_flags: del stop_flags[user_id]
 
 # ============================================================
-# API ENDPOINTS & DOWNLOAD (403 FORBIDDEN FIX)
+# API ENDPOINTS & DOWNLOAD
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
-    runs = await get_user_runs(str(current_user["_id"]))
+    """
+    A dashboard frissítésekor csak az 1 db legutóbbi BEFEJEZETT (finished)
+    keresést adjuk vissza, így a futó keresés NEM jelenik meg lent az előzményekben!
+    """
+    runs = await get_user_finished_runs(str(current_user["_id"]))
     for r in runs:
         r["_id"] = str(r["_id"])
         r["started_at"] = r["started_at"].isoformat()
