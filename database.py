@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
+from bson import ObjectId
+from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
 
@@ -24,18 +25,21 @@ except Exception as e:
 users_collection = database.users
 runs_collection = database.runs
 
+
 async def create_user(email: str, hashed_password: str):
     user = {
         "email": email,
         "password": hashed_password,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
         "is_active": True
     }
     result = await users_collection.insert_one(user)
     return str(result.inserted_id)
 
+
 async def get_user_by_email(email: str):
     return await users_collection.find_one({"email": email})
+
 
 async def create_run(user_id: str, keyword: str, total: int):
     run = {
@@ -54,108 +58,116 @@ async def create_run(user_id: str, keyword: str, total: int):
         "custom_details": [],
         "hits_url": None,
         "custom_url": None,
-        "started_at": datetime.utcnow(),
+        "started_at": datetime.now(timezone.utc),
         "finished_at": None
     }
     result = await runs_collection.insert_one(run)
     return str(result.inserted_id)
 
-# 🔴 JAVÍTOTT TÖRLŐ FUNKCIÓ 🔴
+
 async def delete_old_runs(user_id: str, keep_run_id: str):
     """
     Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből,
     KIVÉVE azt az egyet (keep_run_id), amit most hoztunk létre!
     """
-    from bson import ObjectId
     try:
         await runs_collection.delete_many({
             "user_id": user_id,
             "_id": {"$ne": ObjectId(keep_run_id)}
         })
-        print(f"🗑️ Előző futtatások véglegesen törölve, kivéve a mostanit. (User: {user_id})")
+        print(f"🗑️ Előző futtatások törölve. (User: {user_id})")
     except Exception as e:
         print(f"❌ Hiba a régi futtatások törlésekor: {e}")
 
+
 async def get_run(run_id: str):
-    from bson import ObjectId
     try:
         return await runs_collection.find_one({"_id": ObjectId(run_id)})
-    except:
+    except Exception as e:
+        print(f"❌ get_run hiba [{run_id}]: {e}")
         return None
 
+
 async def update_run_stats(run_id: str, stats: dict):
-    from bson import ObjectId
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$set": stats}
         )
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ update_run_stats hiba [{run_id}]: {e}")
+
 
 async def update_run_status_only(run_id: str, status: str):
-    from bson import ObjectId
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$set": {
                 "status": status,
-                "finished_at": datetime.utcnow() if status == "finished" else None
+                "finished_at": datetime.now(timezone.utc) if status == "finished" else None
             }}
         )
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ update_run_status_only hiba [{run_id}]: {e}")
+
 
 async def add_result_to_run(run_id: str, result_type: str, line: str):
-    from bson import ObjectId
     field = "hit_lines" if result_type == "hit" else "custom_lines"
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$push": {field: line}}
         )
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ add_result_to_run hiba [{run_id}]: {e}")
+
 
 async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
-    from bson import ObjectId
     field = "hit_details" if result_type == "hit" else "custom_details"
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$push": {field: data}}
         )
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ add_result_details hiba [{run_id}]: {e}")
+
 
 async def get_user_finished_runs(user_id: str):
-    cursor = runs_collection.find({"user_id": user_id, "status": "finished"}).sort("started_at", -1)
+    cursor = runs_collection.find(
+        {"user_id": user_id, "status": "finished"}
+    ).sort("started_at", -1)
     return await cursor.to_list(length=1)
 
+
 async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
-    from bson import ObjectId
     try:
         update_data = {
             "status": "finished",
-            "finished_at": datetime.utcnow()
+            "finished_at": datetime.now(timezone.utc)
         }
-        if hits_url: update_data["hits_url"] = hits_url
-        if custom_url: update_data["custom_url"] = custom_url
+        if hits_url:
+            update_data["hits_url"] = hits_url
+        if custom_url:
+            update_data["custom_url"] = custom_url
 
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {
                 "$set": update_data,
                 "$unset": {
-                    "hit_lines": "",       
-                    "custom_lines": "",    
-                    "hit_details": "",     
-                    "custom_details": ""   
+                    "hit_lines": "",
+                    "custom_lines": "",
+                    "hit_details": "",
+                    "custom_details": ""
                 }
             }
         )
     except Exception as e:
-        print(f"Hiba a futtatás lezárásakor: {e}")
+        print(f"❌ finish_and_clean_run hiba [{run_id}]: {e}")
+
 
 async def get_active_run(user_id: str):
-    return await runs_collection.find_one({"user_id": user_id, "status": "running"})
+    return await runs_collection.find_one(
+        {"user_id": user_id, "status": "running"}
+    )
