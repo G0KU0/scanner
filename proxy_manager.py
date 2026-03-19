@@ -77,7 +77,7 @@ class ProxyManager:
                 )
                 text = r.text
                 if r.status_code == 200 and len(text) > 5000:
-                    if "PPFT" in text or "urlPost" in text or "login.live.com" in text:
+                    if "PPFT" in text and "urlPost" in text:
                         return {"ip_port": ip_port, "protocol": proto}
             except:
                 continue
