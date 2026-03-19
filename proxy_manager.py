@@ -7,8 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class ProxyManager:
-    """Automatikus proxy szerző, tesztelő és rotáló manager"""
-
     def __init__(self):
         self.proxies = []
         self.proxy_cycle = None
@@ -20,29 +18,20 @@ class ProxyManager:
             "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
             "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
             "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
-            "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
             "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
             "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/proxies.txt",
             "https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt",
             "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
-            "https://raw.githubusercontent.com/UserR3X/proxy-list/main/online/http.txt",
-            "https://raw.githubusercontent.com/ErcinDedeworken/proxies/main/proxies",
             "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
             "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=https&timeout=10000&country=all&ssl=all&anonymity=all",
-            "https://www.proxy-list.download/api/v1?type=http",
-            "https://www.proxy-list.download/api/v1?type=https",
             "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc",
             "https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt",
             "https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt",
             "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",
         ]
 
-    # ================================================
-    # PROXY LETÖLTÉS
-    # ================================================
     def fetch_proxies(self) -> int:
-        """Összes forrásból proxykat gyűjt"""
-        print("\n🔄 Ingyenes proxyk letöltése...")
+        print("\n🔄 Proxyk letöltése...")
         all_proxies = set()
 
         for source_url in self.SOURCES:
@@ -59,8 +48,6 @@ class ProxyManager:
                                 port = p.get("port", "")
                                 if ip and port:
                                     all_proxies.add(f"{ip}:{port}")
-                            src_name = source_url.split("/")[-1][:40]
-                            print(f"  ✅ {src_name}... ({len(all_proxies)} összesen)")
                             continue
                         except:
                             pass
@@ -79,8 +66,6 @@ class ProxyManager:
                     src_name = source_url.split("/")[-1][:40]
                     print(f"  ✅ {src_name}... ({len(all_proxies)} összesen)")
             except Exception:
-                src_name = source_url.split("/")[-1][:40]
-                print(f"  ❌ {src_name}... (hiba)")
                 continue
 
         with self.lock:
@@ -90,57 +75,55 @@ class ProxyManager:
             self.last_fetch = time.time()
             self.tested = False
 
-        count = len(self.proxies)
-        print(f"\n  📦 {count} proxy letöltve (még NINCS tesztelve)")
-        return count
+        print(f"  📦 {len(self.proxies)} proxy letöltve")
+        return len(self.proxies)
 
-    # ================================================
-    # PROXY TESZTELÉS
-    # ================================================
-    def _test_single_proxy(self, proxy_str: str, timeout: int = 4) -> bool:
-        """Egy proxy tesztelése - működik-e?"""
+    def _test_single_proxy(self, proxy_str: str, timeout: int = 6) -> bool:
+        """
+        Proxy tesztelése MICROSOFT LOGIN OLDALON!
+        Nem google - hanem az igazi célpont ellen teszteljük.
+        """
         proxies = {
             "http": f"http://{proxy_str}",
             "https": f"http://{proxy_str}",
         }
 
-        # 1. próba: Google (leggyorsabb)
         try:
-            r = requests.head(
-                "http://www.google.com/",
+            # Microsoft login oldalt teszteljük - ez az igazi teszt!
+            r = requests.get(
+                "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
+                "client_info=1&haschrome=1&login_hint=test@hotmail.com"
+                "&mkt=en&response_type=code"
+                "&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59"
+                "&scope=profile%20openid%20offline_access"
+                "%20https%3A%2F%2Foutlook.office.com%2FM365.Access"
+                "&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite"
+                "%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D",
                 proxies=proxies,
                 timeout=timeout,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
                 allow_redirects=True,
             )
-            if r.status_code < 500:
-                return True
-        except:
-            pass
 
-        # 2. próba: httpbin
-        try:
-            r = requests.get(
-                "http://httpbin.org/ip",
-                proxies=proxies,
-                timeout=timeout,
-            )
-            if r.status_code == 200:
-                return True
-        except:
-            pass
+            # Ellenőrizzük hogy VALÓBAN Microsoft oldalt kaptunk
+            text = r.text
+            if r.status_code == 200 and len(text) > 5000:
+                if "PPFT" in text or "urlPost" in text or "login.live.com" in text:
+                    return True
 
-        return False
+            return False
+
+        except:
+            return False
 
     def test_and_filter(
         self,
-        sample_size: int = 1500,
-        max_workers: int = 300,
-        timeout: int = 4,
+        sample_size: int = 2000,
+        max_workers: int = 400,
+        timeout: int = 6,
     ) -> int:
-        """
-        Random mintát vesz a proxykból, teszteli párhuzamosan,
-        és CSAK a működőket tartja meg.
-        """
         with self.lock:
             all_proxies = list(self.proxies)
 
@@ -148,14 +131,14 @@ class ProxyManager:
             print("⚠️  Nincs proxy a teszteléshez!")
             return 0
 
-        # Mintavétel
         if len(all_proxies) <= sample_size:
             to_test = all_proxies
         else:
             to_test = random.sample(all_proxies, sample_size)
 
         total_to_test = len(to_test)
-        print(f"\n🧪 {total_to_test} proxy tesztelése ({max_workers} szálon, {timeout}s timeout)...")
+        print(f"\n🧪 {total_to_test} proxy tesztelése MICROSOFT LOGIN ellen...")
+        print(f"   ({max_workers} szál, {timeout}s timeout)")
 
         working = []
         tested = 0
@@ -179,15 +162,13 @@ class ProxyManager:
                 except:
                     failed += 1
 
-                # Haladás kiírása
-                if tested % 300 == 0 or tested == total_to_test:
+                if tested % 500 == 0 or tested == total_to_test:
                     print(
-                        f"  📊 Tesztelve: {tested}/{total_to_test} | "
+                        f"  📊 {tested}/{total_to_test} | "
                         f"✅ Működik: {len(working)} | "
                         f"❌ Halott: {failed}"
                     )
 
-        # Csak a működőket tartjuk meg
         with self.lock:
             self.proxies = working
             random.shuffle(self.proxies)
@@ -195,22 +176,17 @@ class ProxyManager:
             self.tested = True
 
         print(f"\n{'=' * 55}")
-        print(f"  🟢 {len(working)} TESZTELT, MŰKÖDŐ proxy készen áll!")
-        print(f"  ❌ {failed} halott proxy eltávolítva")
+        print(f"  🟢 {len(working)} MICROSOFT-TESZTELT proxy kész!")
+        print(f"  ❌ {failed} nem működő proxy törölve")
         print(f"{'=' * 55}\n")
 
         return len(working)
 
     def fetch_and_test(self) -> int:
-        """Letölt ÉS tesztel egyben"""
         self.fetch_proxies()
         return self.test_and_filter()
 
-    # ================================================
-    # PROXY HASZNÁLAT
-    # ================================================
     def _is_valid_proxy(self, ip: str, port: str) -> bool:
-        """Érvényes ip:port ellenőrzés"""
         try:
             parts = ip.split(".")
             if len(parts) != 4:
@@ -227,7 +203,6 @@ class ProxyManager:
             return False
 
     def get_proxy(self) -> dict:
-        """Következő proxy lekérése (round-robin)"""
         with self.lock:
             if not self.proxies or not self.proxy_cycle:
                 return None
@@ -237,34 +212,22 @@ class ProxyManager:
             "https": f"http://{proxy_str}",
         }
 
-    def get_proxy_str(self) -> str:
-        """Proxy string formátumban (ip:port)"""
-        with self.lock:
-            if not self.proxies or not self.proxy_cycle:
-                return None
-            return next(self.proxy_cycle)
-
     def get_count(self) -> int:
-        """Működő proxyk száma"""
         with self.lock:
             return len(self.proxies)
 
     def is_tested(self) -> bool:
-        """Voltak-e már tesztelve a proxyk?"""
         with self.lock:
             return self.tested
 
     def mark_bad(self, proxy_str: str):
-        """Futás közben halottnak jelölt proxy eltávolítása"""
         with self.lock:
             if proxy_str in self.proxies:
                 self.proxies.remove(proxy_str)
-                # Új cycle a maradékból
                 if self.proxies:
                     self.proxy_cycle = cycle(self.proxies)
                 else:
                     self.proxy_cycle = None
 
 
-# Globális proxy manager
 proxy_manager = ProxyManager()
