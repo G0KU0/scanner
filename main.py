@@ -44,26 +44,35 @@ def upload_to_external_api(content: str, filename: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("\n🔧 Startup cleanup...")
+    print("\n🔧 Startup - Proxy letöltés és tesztelés...")
 
-    # ====== PROXY BETÖLTÉS INDULÁSKOR ======
-    proxy_count = await asyncio.to_thread(proxy_manager.fetch_proxies)
-    if proxy_count == 0:
-        print("⚠️  FIGYELEM: Nem sikerült proxykat betölteni!")
+    # ====== 1. PROXY LETÖLTÉS ======
+    await asyncio.to_thread(proxy_manager.fetch_proxies)
+
+    # ====== 2. PROXY TESZTELÉS ======
+    working_count = await asyncio.to_thread(
+        proxy_manager.test_and_filter,
+        1500,   # 1500 proxyt tesztelünk
+        300,    # 300 párhuzamos szál
+        4       # 4 másodperc timeout
+    )
+
+    if working_count == 0:
+        print("⚠️  FIGYELEM: Egyetlen proxy sem működik!")
         print("⚠️  A checker proxy nélkül fog futni!")
     else:
-        print(f"🟢 {proxy_count} proxy készen áll!")
+        print(f"🟢 {working_count} TESZTELT proxy készen áll!")
 
-    # ====== HÁTTÉRBEN PROXY FRISSÍTÉS (30 percenként) ======
+    # ====== 3. HÁTTÉRBEN PROXY FRISSÍTÉS (30 percenként) ======
     async def proxy_refresh_loop():
         while True:
             await asyncio.sleep(1800)
-            print("\n🔄 Proxyk automatikus frissítése...")
-            await asyncio.to_thread(proxy_manager.fetch_proxies)
+            print("\n🔄 Proxyk automatikus frissítése és tesztelése...")
+            await asyncio.to_thread(proxy_manager.fetch_and_test)
 
     refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-    # ====== DB CLEANUP ======
+    # ====== 4. DB CLEANUP ======
     from pymongo import MongoClient
     sync_client = MongoClient(os.getenv("MONGODB_URL"))
     db = sync_client.hotmail_checker
@@ -84,7 +93,7 @@ async def lifespan(app: FastAPI):
             stop_flags[user_id].set()
 
 
-app = FastAPI(title="Hotmail Inboxer Multi-User (Auto-Proxy)", lifespan=lifespan)
+app = FastAPI(title="Hotmail Inboxer (Tested Proxies)", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -149,20 +158,21 @@ async def login(email: str = Form(...), password: str = Form(...)):
 
 
 # ============================================================
-# PROXY INFO ENDPOINTS
+# PROXY ENDPOINTS
 # ============================================================
 @app.get("/api/proxy_status")
 async def proxy_status(current_user=Depends(get_current_user)):
     return {
         "proxy_count": proxy_manager.get_count(),
+        "tested": proxy_manager.is_tested(),
         "status": "active" if proxy_manager.get_count() > 0 else "no_proxies",
     }
 
 
 @app.post("/api/refresh_proxies")
 async def refresh_proxies(current_user=Depends(get_current_user)):
-    count = await asyncio.to_thread(proxy_manager.fetch_proxies)
-    return {"proxy_count": count, "message": f"{count} proxy betöltve!"}
+    count = await asyncio.to_thread(proxy_manager.fetch_and_test)
+    return {"proxy_count": count, "message": f"{count} tesztelt proxy betöltve!"}
 
 
 # ============================================================
@@ -206,6 +216,7 @@ async def start_checker(
         "total": len(lines),
         "speed": speed,
         "proxies": proxy_manager.get_count(),
+        "tested": proxy_manager.is_tested(),
     }
 
 
@@ -225,9 +236,10 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     stopped = False
 
     proxy_count = proxy_manager.get_count()
+    tested_str = "✅ tesztelt" if proxy_manager.is_tested() else "⚠️ teszteletlen"
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "info",
-        "text": f"[START] {total} fiók | {keyword} | {speed}s | 🔒 {proxy_count} proxy"
+        "text": f"[START] {total} fiók | {keyword} | {speed}s | 🔒 {proxy_count} proxy ({tested_str})"
     }))
 
     for line in lines:
@@ -271,13 +283,17 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
 
         elif result["status"] == "bad":
             bad += 1
-            broadcast_to_user(user_id, json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}))
+            broadcast_to_user(user_id, json.dumps({
+                "type": "log", "level": "bad",
+                "text": f"[BAD] {email} (wrong password)"
+            }))
 
         else:
+            # error - max retries kimerült
             retries += 1
             broadcast_to_user(user_id, json.dumps({
                 "type": "log", "level": "retry",
-                "text": f"[RETRY] {email} - {result.get('reason', '?')}"
+                "text": f"[RETRY FAILED] {email} - {result.get('reason', '?')}"
             }))
 
         await update_run_stats(run_id, {
@@ -318,7 +334,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "finish",
-        "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom}"
+        "text": f"[{st_text}] Befejezve! Hits: {hits} | Custom: {custom} | Bad: {bad} | Retries: {retries}"
     }))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
 
@@ -386,11 +402,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
 
-    # Proxy info küldése csatlakozáskor
     try:
         await websocket.send_text(json.dumps({
             "type": "proxy_info",
             "count": proxy_manager.get_count(),
+            "tested": proxy_manager.is_tested(),
         }))
     except:
         pass
@@ -423,7 +439,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - AUTO-PROXY EDITION")
+    print("  🚀 Hotmail Inboxer - TESTED PROXY EDITION")
     print(f"  📡 http://0.0.0.0:{port}")
     print("=" * 60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
