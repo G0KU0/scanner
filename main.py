@@ -46,33 +46,30 @@ def upload_to_external_api(content: str, filename: str) -> str:
 async def lifespan(app: FastAPI):
     print("\n🔧 Startup...")
 
-    # 1. PROXY LETÖLTÉS
     await asyncio.to_thread(proxy_manager.fetch_proxies)
 
-    # 2. PROXY TESZTELÉS (Microsoft login ellen!)
     working_count = await asyncio.to_thread(
         proxy_manager.test_and_filter,
-        2000,   # 2000 proxyt tesztelünk
-        400,    # 400 párhuzamos szál
-        6       # 6 másodperc timeout
+        3000,
+        500,
+        8
     )
 
     if working_count == 0:
-        print("⚠️  Nem találtunk működő proxyt!")
-        print("⚠️  A checker DIRECT módban fog futni (proxy nélkül)!")
+        print("⚠️  Nem találtunk működő proxyt → DIRECT mód!")
     else:
-        print(f"🟢 {working_count} Microsoft-tesztelt proxy kész!")
+        stats = proxy_manager.get_stats()
+        print(f"🟢 {working_count} proxy kész!")
+        print(f"   HTTP: {stats['http']} | SOCKS5: {stats['socks5']} | SOCKS4: {stats['socks4']}")
 
-    # 3. HÁTTÉRBEN PROXY FRISSÍTÉS (45 percenként)
     async def proxy_refresh_loop():
         while True:
-            await asyncio.sleep(2700)  # 45 perc
-            print("\n🔄 Proxyk frissítése és tesztelése...")
+            await asyncio.sleep(2700)
+            print("\n🔄 Proxyk frissítése...")
             await asyncio.to_thread(proxy_manager.fetch_and_test)
 
     refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-    # 4. DB CLEANUP
     from pymongo import MongoClient
     sync_client = MongoClient(os.getenv("MONGODB_URL"))
     db = sync_client.hotmail_checker
@@ -93,7 +90,7 @@ async def lifespan(app: FastAPI):
             stop_flags[user_id].set()
 
 
-app = FastAPI(title="Hotmail Inboxer (Smart Proxy)", lifespan=lifespan)
+app = FastAPI(title="Hotmail Inboxer", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -121,9 +118,6 @@ def broadcast_to_user(user_id: str, message: str):
             del user_connections[user_id]
 
 
-# ============================================================
-# AUTH ROUTES
-# ============================================================
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
@@ -157,13 +151,14 @@ async def login(email: str = Form(...), password: str = Form(...)):
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
-# ============================================================
-# PROXY ENDPOINTS
-# ============================================================
 @app.get("/api/proxy_status")
 async def proxy_status(current_user=Depends(get_current_user)):
+    stats = proxy_manager.get_stats()
     return {
-        "proxy_count": proxy_manager.get_count(),
+        "proxy_count": stats["total"],
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
         "tested": proxy_manager.is_tested(),
     }
 
@@ -171,12 +166,15 @@ async def proxy_status(current_user=Depends(get_current_user)):
 @app.post("/api/refresh_proxies")
 async def refresh_proxies(current_user=Depends(get_current_user)):
     count = await asyncio.to_thread(proxy_manager.fetch_and_test)
-    return {"proxy_count": count, "message": f"{count} tesztelt proxy betöltve!"}
+    stats = proxy_manager.get_stats()
+    return {
+        "proxy_count": count,
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+    }
 
 
-# ============================================================
-# CHECKER LOGIC
-# ============================================================
 @app.post("/api/start")
 async def start_checker(
     file: UploadFile,
@@ -210,15 +208,11 @@ async def start_checker(
         daemon=True,
     ).start()
 
-    proxy_count = proxy_manager.get_count()
-    mode = f"🔒 {proxy_count} proxy + direct fallback" if proxy_count > 0 else "⚡ Direct mód (proxy nélkül)"
-
     return {
         "run_id": run_id,
         "total": len(lines),
         "speed": speed,
-        "proxies": proxy_count,
-        "mode": mode,
+        "proxies": proxy_manager.get_stats(),
     }
 
 
@@ -237,15 +231,21 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     total = len(lines)
     stopped = False
 
-    proxy_count = proxy_manager.get_count()
-    if proxy_count > 0:
-        mode_text = f"🔒 {proxy_count} proxy + direct fallback"
+    stats = proxy_manager.get_stats()
+    pc = stats["total"]
+
+    if pc > 0:
+        mode = f"🔒 {pc} proxy (H:{stats['http']} S5:{stats['socks5']} S4:{stats['socks4']}) + direct fallback"
     else:
-        mode_text = "⚡ Direct mód"
+        mode = "⚡ Direct mód"
 
     broadcast_to_user(user_id, json.dumps({
         "type": "log", "level": "info",
-        "text": f"[START] {total} combo | {keyword} | {speed}s | {mode_text}"
+        "text": f"[START] {total} combo | {keyword} | {speed}s"
+    }))
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "info",
+        "text": f"[MODE] {mode}"
     }))
 
     for line in lines:
@@ -312,7 +312,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         }))
         await asyncio.sleep(speed)
 
-    # ============ BEFEJEZÉS ============
     await update_run_status_only(run_id, "finished")
 
     if hits > 0 or custom > 0:
@@ -348,9 +347,6 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
             del stop_flags[user_id]
 
 
-# ============================================================
-# API ENDPOINTS & DOWNLOAD
-# ============================================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user=Depends(get_current_user)):
     runs = await get_user_finished_runs(str(current_user["_id"]))
@@ -386,9 +382,6 @@ async def download_direct(run_id: str, type: str):
     )
 
 
-# ============================================================
-# WEBSOCKET
-# ============================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     await websocket.accept()
@@ -408,9 +401,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         user_connections[user_id].append(ws_info)
 
     try:
+        stats = proxy_manager.get_stats()
         await websocket.send_text(json.dumps({
             "type": "proxy_info",
-            "count": proxy_manager.get_count(),
+            "count": stats["total"],
+            "http": stats["http"],
+            "socks4": stats["socks4"],
+            "socks5": stats["socks5"],
             "tested": proxy_manager.is_tested(),
         }))
     except:
@@ -444,7 +441,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - SMART PROXY")
+    print("  🚀 Hotmail Inboxer - Auto Proxy")
     print(f"  📡 http://0.0.0.0:{port}")
     print("=" * 60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
