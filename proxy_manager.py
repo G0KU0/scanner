@@ -2,8 +2,92 @@ import requests
 import threading
 import time
 import random
+import re
 from itertools import cycle
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+# ==========================================
+# 30+ INGYENES PROXY FORRÁS (naponta frissülnek)
+# ==========================================
+PROXY_SOURCES = [
+    # === ProxyScrape API (valós idejű) ===
+    {"url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text", "hint": "mixed"},
+    {"url": "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all", "hint": "http"},
+    {"url": "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all", "hint": "socks5"},
+    {"url": "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks4&timeout=10000&country=all", "hint": "socks4"},
+
+    # === TheSpeedX (20 percenként frissül) ===
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt", "hint": "socks5"},
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt", "hint": "socks4"},
+
+    # === monosans (óránként frissül) ===
+    {"url": "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks4.txt", "hint": "socks4"},
+    {"url": "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt", "hint": "socks5"},
+
+    # === ShiftyTR ===
+    {"url": "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks4.txt", "hint": "socks4"},
+    {"url": "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt", "hint": "socks5"},
+
+    # === prxchk (rendszeresen frissül) ===
+    {"url": "https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/prxchk/proxy-list/main/socks4.txt", "hint": "socks4"},
+    {"url": "https://raw.githubusercontent.com/prxchk/proxy-list/main/socks5.txt", "hint": "socks5"},
+
+    # === MuRongPIG (naponta) ===
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks5.txt", "hint": "socks5"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks4.txt", "hint": "socks4"},
+
+    # === mmpx12 ===
+    {"url": "https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks5.txt", "hint": "socks5"},
+    {"url": "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks4.txt", "hint": "socks4"},
+
+    # === rdavydov ===
+    {"url": "https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/socks4.txt", "hint": "socks4"},
+    {"url": "https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/socks5.txt", "hint": "socks5"},
+
+    # === hookzof (socks5) ===
+    {"url": "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt", "hint": "socks5"},
+
+    # === clarketm ===
+    {"url": "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt", "hint": "http"},
+
+    # === proxy-list.download API ===
+    {"url": "https://www.proxy-list.download/api/v1/get?type=http", "hint": "http"},
+    {"url": "https://www.proxy-list.download/api/v1/get?type=socks5", "hint": "socks5"},
+    {"url": "https://www.proxy-list.download/api/v1/get?type=socks4", "hint": "socks4"},
+
+    # === sunny9577 ===
+    {"url": "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/http_proxies.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/generated/socks5_proxies.txt", "hint": "socks5"},
+
+    # === Zaeem20 ===
+    {"url": "https://raw.githubusercontent.com/Zaeem20/FREE_PROXY_LIST/master/http.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/Zaeem20/FREE_PROXY_LIST/master/socks5.txt", "hint": "socks5"},
+    {"url": "https://raw.githubusercontent.com/Zaeem20/FREE_PROXY_LIST/master/socks4.txt", "hint": "socks4"},
+
+    # === roosterkid ===
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt", "hint": "http"},
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt", "hint": "socks5"},
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS4_RAW.txt", "hint": "socks4"},
+
+    # === openproxylist API ===
+    {"url": "https://api.openproxylist.xyz/http.txt", "hint": "http"},
+    {"url": "https://api.openproxylist.xyz/socks5.txt", "hint": "socks5"},
+    {"url": "https://api.openproxylist.xyz/socks4.txt", "hint": "socks4"},
+
+    # === spys.me ===
+    {"url": "https://spys.me/proxy.txt", "hint": "http"},
+
+    # === GeoNode API ===
+    {"url": "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc", "hint": "geonode"},
+]
 
 
 class ProxyManager:
@@ -14,49 +98,116 @@ class ProxyManager:
         self.last_fetch = 0
         self.tested = False
 
-        self.PROXY_URL = "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text"
-
-    def fetch_proxies(self) -> int:
-        print("\n🔄 Proxyk letöltése (ProxyScrape)...")
-        raw_proxies = set()
+    # ------------------------------------------
+    # FORRÁS LETÖLTÉS
+    # ------------------------------------------
+    def _fetch_from_source(self, source: dict) -> list:
+        """Egy forrásból letölti a proxykat"""
+        url = source["url"]
+        hint = source.get("hint", "unknown")
+        proxies_found = []
 
         try:
-            resp = requests.get(self.PROXY_URL, timeout=15)
-            if resp.status_code == 200:
-                for line in resp.text.strip().splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    parts = line.split(":")
-                    if len(parts) == 2:
-                        ip = parts[0].strip()
-                        port = parts[1].strip()
-                        if self._is_valid_proxy(ip, port):
-                            raw_proxies.add(f"{ip}:{port}")
+            resp = requests.get(
+                url, timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            if resp.status_code != 200:
+                return proxies_found
 
-                print(f"  ✅ {len(raw_proxies)} proxy letöltve")
-            else:
-                print(f"  ❌ HTTP {resp.status_code}")
-        except Exception as e:
-            print(f"  ❌ Hiba: {str(e)[:60]}")
+            # GeoNode speciális JSON formátum
+            if hint == "geonode":
+                try:
+                    data = resp.json()
+                    for item in data.get("data", []):
+                        ip = item.get("ip", "")
+                        port = str(item.get("port", ""))
+                        if self._is_valid_proxy(ip, port):
+                            proto = "socks5" if "socks5" in item.get("protocols", []) else \
+                                    "socks4" if "socks4" in item.get("protocols", []) else "http"
+                            proxies_found.append({"ip_port": f"{ip}:{port}", "hint": proto})
+                except:
+                    pass
+                return proxies_found
+
+            # Normál szöveges formátum (ip:port)
+            for line in resp.text.strip().splitlines():
+                line = line.strip()
+                if not line or line.startswith('#') or line.startswith('*'):
+                    continue
+
+                # Regex: ip:port vagy ip port (bármilyen formátum)
+                match = re.match(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[:\s]+(\d{1,5})', line)
+                if match:
+                    ip = match.group(1)
+                    port = match.group(2)
+                    if self._is_valid_proxy(ip, port):
+                        actual_hint = hint if hint not in ("mixed", "geonode") else "unknown"
+                        proxies_found.append({"ip_port": f"{ip}:{port}", "hint": actual_hint})
+
+        except Exception:
+            pass
+
+        return proxies_found
+
+    def fetch_proxies(self) -> int:
+        """Összes forrásból letölti a proxykat párhuzamosan"""
+        total_sources = len(PROXY_SOURCES)
+        print(f"\n🔄 Proxyk letöltése {total_sources} forrásból...")
+
+        all_proxies = {}  # ip_port -> hint (deduplikáció)
+        success_count = 0
+        fail_count = 0
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {
+                executor.submit(self._fetch_from_source, src): src
+                for src in PROXY_SOURCES
+            }
+            for future in as_completed(futures):
+                src = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        for p in result:
+                            ip_port = p["ip_port"]
+                            if ip_port not in all_proxies:
+                                all_proxies[ip_port] = p["hint"]
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                except Exception:
+                    fail_count += 1
+
+        print(f"  ✅ {success_count}/{total_sources} forrás sikeres | ❌ {fail_count} sikertelen")
 
         with self.lock:
             self.proxies = [
-                {"ip_port": p, "protocol": "unknown"}
-                for p in raw_proxies
+                {"ip_port": ip_port, "protocol": hint if hint != "unknown" else "http"}
+                for ip_port, hint in all_proxies.items()
             ]
             random.shuffle(self.proxies)
             self.proxy_cycle = cycle(self.proxies) if self.proxies else None
             self.last_fetch = time.time()
             self.tested = False
 
-        print(f"  📦 {len(self.proxies)} proxy kész (tesztelésre vár)")
+        print(f"  📦 {len(self.proxies)} egyedi proxy összegyűjtve (tesztelésre vár)")
         return len(self.proxies)
 
+    # ------------------------------------------
+    # PROXY TESZTELÉS
+    # ------------------------------------------
     def _test_single_proxy(self, proxy_info: dict, timeout: int = 8) -> dict:
         ip_port = proxy_info["ip_port"]
+        hint = proxy_info.get("protocol", "http")
 
-        for proto in ["http", "socks5", "socks4"]:
+        # Hint szerinti protokollt próbáljuk először
+        protocols = ["http", "socks5", "socks4"]
+        if hint in protocols:
+            protocols.remove(hint)
+            protocols.insert(0, hint)
+
+        for proto in protocols:
             proxy_dict = self._build_proxy_dict(ip_port, proto)
             try:
                 r = requests.get(
@@ -94,7 +245,7 @@ class ProxyManager:
 
     def test_and_filter(
         self,
-        sample_size: int = 3000,
+        sample_size: int = 5000,
         max_workers: int = 500,
         timeout: int = 8,
     ) -> int:
@@ -109,7 +260,7 @@ class ProxyManager:
         total_to_test = len(to_test)
 
         print(f"\n🧪 {total_to_test} proxy tesztelése Microsoft login ellen...")
-        print(f"   {max_workers} szál | {timeout}s timeout | Auto: HTTP→SOCKS5→SOCKS4")
+        print(f"   {max_workers} szál | {timeout}s timeout | Hint-alapú protokoll sorrend")
 
         working = []
         tested = 0
@@ -149,6 +300,7 @@ class ProxyManager:
         print(f"\n{'=' * 60}")
         print(f"  🟢 {len(working)} MŰKÖDŐ proxy kész!")
         print(f"     HTTP: {proto_stats['http']} | SOCKS5: {proto_stats['socks5']} | SOCKS4: {proto_stats['socks4']}")
+        print(f"  📋 Források: {len(PROXY_SOURCES)} db | Összegyűjtve: {len(all_proxies)} | Tesztelve: {total_to_test}")
         print(f"{'=' * 60}\n")
         return len(working)
 
@@ -156,6 +308,9 @@ class ProxyManager:
         self.fetch_proxies()
         return self.test_and_filter()
 
+    # ------------------------------------------
+    # SEGÉD METÓDUSOK
+    # ------------------------------------------
     def _is_valid_proxy(self, ip: str, port: str) -> bool:
         try:
             parts = ip.split(".")
