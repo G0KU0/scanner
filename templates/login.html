@@ -3,121 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bejelentkezés - Hotmail Inboxer</title>
+    <title>Bejelentkezés - Hotmail Inboxer VIP</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
-<body class="login-bg">
-    <div class="min-h-screen flex flex-col items-center justify-center p-4">
-        <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in">
-            
-            <!-- LOGO -->
+<body>
+    <div class="app-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <div class="min-h-screen flex flex-col items-center justify-center p-4 relative z-10">
+        <div class="glass-card rounded-[2.5rem] p-10 max-w-md w-full animate-fade-in">
             <div class="text-center mb-10">
-                <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-5"
-                     style="background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 10px 30px rgba(99,102,241,0.4);">
+                <div class="inline-flex items-center justify-center w-20 h-20 rounded-[1.2rem] mb-6" style="background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 0 40px rgba(99, 102, 241, 0.4);">
                     <i data-lucide="zap" class="w-10 h-10 text-white"></i>
                 </div>
-                <h1 class="text-3xl font-black text-white mb-2 tracking-tight">
-                    Hotmail Inboxer
-                </h1>
-                <p class="text-white/40 text-sm tracking-widest uppercase">
-                    Készítette <span class="text-indigo-400 font-bold">Szaby</span>
-                </p>
+                <h1 class="text-4xl font-black text-white mb-2 tracking-tight text-gradient">Inboxer VIP</h1>
+                <p class="text-white/40 text-xs tracking-[0.2em] uppercase font-bold">Készítette Szaby</p>
             </div>
             
-            <!-- FORM -->
-            <form id="loginForm" class="space-y-5">
+            <form id="loginForm" class="space-y-6">
                 <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="mail" class="w-3.5 h-3.5"></i>
-                        Email
-                    </label>
-                    <input type="email" id="email" required
-                        placeholder="sajat@email.com"
-                        class="glass-input">
+                    <label class="block text-white/70 text-[11px] mb-2 font-bold uppercase tracking-wider flex items-center gap-2"><i data-lucide="mail" class="w-3.5 h-3.5 text-indigo-400"></i> Email</label>
+                    <input type="email" id="email" required placeholder="admin@inboxer.com" class="glass-input">
                 </div>
-                
                 <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="lock" class="w-3.5 h-3.5"></i>
-                        Jelszó
-                    </label>
-                    <input type="password" id="password" required
-                        placeholder="••••••••"
-                        class="glass-input">
+                    <label class="block text-white/70 text-[11px] mb-2 font-bold uppercase tracking-wider flex items-center gap-2"><i data-lucide="lock" class="w-3.5 h-3.5 text-indigo-400"></i> Jelszó</label>
+                    <input type="password" id="password" required placeholder="••••••••" class="glass-input">
                 </div>
-                
-                <button type="submit" class="glass-button w-full mt-2">
-                    <span>Bejelentkezés</span>
-                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
-                </button>
+                <button type="submit" class="glass-button w-full mt-8"><span>Bejelentkezés</span><i data-lucide="arrow-right" class="w-5 h-5"></i></button>
             </form>
             
-            <!-- REGISTER LINK -->
             <div class="mt-8 text-center">
                 <p class="text-white/30 text-sm">Nincs még fiókod?</p>
-                <a href="/register" class="text-indigo-400 font-bold hover:text-indigo-300 transition text-sm mt-1 inline-flex items-center gap-1">
-                    Regisztráció
-                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
-                </a>
+                <a href="/register" class="text-indigo-400 font-bold hover:text-indigo-300 transition text-sm mt-1 inline-flex items-center gap-1">Regisztráció kód megadásával<i data-lucide="chevron-right" class="w-4 h-4"></i></a>
             </div>
-            
-            <!-- ERROR -->
-            <div id="error" class="hidden mt-4 p-3 bg-red-500/10 border border-red-500/30
-                text-red-300 rounded-xl text-sm flex items-center gap-2">
-            </div>
-        </div>
-        
-        <!-- FOOTER -->
-        <div class="footer mt-8">
-            <div class="footer-divider"></div>
-            <div class="flex items-center justify-center gap-2 mt-3">
-                <i data-lucide="code-2" class="w-4 h-4 text-indigo-400/60"></i>
-                <span class="footer-brand">SZABY</span>
-                <span class="text-white/10">·</span>
-                <span class="text-white/20">Hotmail Inboxer</span>
-            </div>
+            <div id="error" class="hidden mt-4 p-4 bg-red-500/10 border border-red-500/30 text-red-300 rounded-2xl text-sm flex items-center gap-3 font-medium"></div>
         </div>
     </div>
 
     <script>
         lucide.createIcons();
-        
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Bejelentkezés...';
-            
-            const formData = new FormData();
-            formData.append('email', document.getElementById('email').value);
-            formData.append('password', document.getElementById('password').value);
-            
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i> Hitelesítés...'; lucide.createIcons();
+            const formData = new FormData(); formData.append('email', document.getElementById('email').value); formData.append('password', document.getElementById('password').value);
             try {
                 const res = await fetch('/api/login', { method: 'POST', body: formData });
                 const data = await res.json();
-                
-                if (res.ok) {
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('email', data.email);
-                    window.location.href = '/dashboard';
-                } else {
+                if (res.ok) { localStorage.setItem('token', data.token); localStorage.setItem('email', data.email); window.location.href = '/dashboard'; } 
+                else {
                     const err = document.getElementById('error');
-                    err.innerHTML = '<i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>' + data.detail;
-                    err.classList.remove('hidden');
-                    lucide.createIcons();
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>Bejelentkezés</span><i data-lucide="arrow-right" class="w-5 h-5"></i>';
-                    lucide.createIcons();
+                    err.innerHTML = '<i data-lucide="alert-octagon" class="w-5 h-5 flex-shrink-0"></i>' + data.detail;
+                    err.classList.remove('hidden'); btn.disabled = false; btn.innerHTML = originalHtml; lucide.createIcons();
                     setTimeout(() => err.classList.add('hidden'), 3000);
                 }
-            } catch(err) {
-                alert('Hiba: ' + err);
-                btn.disabled = false;
-                btn.innerHTML = '<span>Bejelentkezés</span>';
-            }
+            } catch(err) { alert('Hiba történt!'); btn.disabled = false; btn.innerHTML = originalHtml; }
         });
     </script>
 </body>
