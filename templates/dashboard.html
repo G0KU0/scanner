@@ -24,6 +24,12 @@
                 </div>
             </div>
             <div class="flex items-center gap-2 md:gap-4">
+                
+                <a href="/admin" id="adminBtn" class="hidden items-center gap-2 px-3 md:px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl transition text-xs md:text-sm font-semibold shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                    <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Admin</span>
+                </a>
+
                 <div class="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/5">
                     <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400"></i>
                     <span id="userEmail" class="text-sm text-white/70 font-medium truncate max-w-[150px]">Loading...</span>
@@ -197,7 +203,7 @@
                 <i data-lucide="code-2" class="w-3.5 h-3.5 md:w-4 md:h-4 text-indigo-400/50"></i>
                 <span class="footer-brand text-sm md:text-base">SZABY</span>
                 <span class="text-white/10">·</span>
-                <span class="text-white/20 text-xs md:text-sm">Hotmail Inboxer v3.4</span>
+                <span class="text-white/20 text-xs md:text-sm">Hotmail Inboxer v4.0 VIP</span>
             </div>
             <p class="text-white/10 text-[9px] md:text-[11px] mt-2">Minden jog fenntartva © 2025</p>
         </div>
@@ -212,6 +218,15 @@
 
         if (!token || !email) { window.location.href = '/'; }
         document.getElementById('userEmail').textContent = email;
+
+        // --- ÚJ: ADMIN GOMB LÁTHATÓSÁGA ---
+        if (email === 'xat.king6969@gmail.com') {
+            const adminBtn = document.getElementById('adminBtn');
+            if(adminBtn) {
+                adminBtn.classList.remove('hidden');
+                adminBtn.classList.add('flex');
+            }
+        }
 
         document.getElementById('speed').addEventListener('change', function() {
             const s = parseFloat(this.value);
@@ -301,7 +316,6 @@
             currentPreview = type; preview.classList.remove('hidden'); updatePreview(type);
         }
 
-        // 🟢 ITT VAN A DÁTUM KIÍRÁSA A LIVE PREVIEW-BAN 🟢
         function updatePreview(type) {
             const box = document.getElementById('previewBox');
             const data = type === 'hits' ? liveHits : liveCustom;
@@ -311,7 +325,6 @@
             const color = type === 'hits' ? 'green' : 'cyan';
             
             box.innerHTML = data.map((item, i) => {
-                // Sárga színű dátum kiíratása, ha van
                 let dateHtml = '';
                 if (type === 'hits' && item.date && item.date !== 'N/A') {
                     dateHtml = `<span>·</span><span class="text-yellow-400/90 font-medium">Utolsó levél: ${item.date}</span>`;
