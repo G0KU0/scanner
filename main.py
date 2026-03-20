@@ -10,6 +10,7 @@ import threading
 import os
 import json
 import requests
+import uuid # ÚJ IMPORT
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -24,7 +25,7 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 MAX_WORKERS = 40
-
+ADMIN_EMAIL = "xat.king6969@gmail.com" # ÚJ: ADMIN EMAIL CÍM
 
 def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0:
@@ -135,14 +136,29 @@ async def register_page(request: Request):
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+# ÚJ: Admin oldal renderelése
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
+
 
 @app.post("/api/register")
-async def register(email: str = Form(...), password: str = Form(...)):
+async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
+    
+    # ÚJ: Meghívó kód ellenőrzése
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált meghívó kód!")
+
     if await get_user_by_email(email):
-        raise HTTPException(status_code=400, detail="Foglalt email")
+        raise HTTPException(status_code=400, detail="Foglalt email cím")
+    
+    # Felhasználó létrehozása és kód törlése
     await create_user(email, hash_password(password))
+    await delete_invite_code(invite_code)
+    
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
@@ -153,6 +169,38 @@ async def login(email: str = Form(...), password: str = Form(...)):
         raise HTTPException(status_code=401, detail="Hibás adatok")
     return {"token": create_access_token({"sub": email}), "email": email}
 
+# ==========================================
+# ÚJ ADMIN API VÉGPONTOK
+# ==========================================
+@app.get("/api/admin/invites")
+async def get_invites(current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod ehhez a funkcióhoz!")
+    
+    invites = await get_all_invites()
+    for inv in invites:
+        inv["_id"] = str(inv["_id"])
+        inv["created_at"] = inv["created_at"].isoformat()
+    return invites
+
+@app.post("/api/admin/generate_invite")
+async def generate_invite(current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
+    
+    # Generálunk egy menő kinézetű kódot (pl. INBOX-A1B2C3D4)
+    new_code = "INBOX-" + str(uuid.uuid4()).split('-')[0].upper()
+    await create_invite_code(new_code)
+    return {"status": "success", "code": new_code}
+
+@app.delete("/api/admin/invites/{code}")
+async def delete_invite(code: str, current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
+    
+    await delete_invite_code(code)
+    return {"status": "deleted"}
+# ==========================================
 
 @app.get("/api/proxy_status")
 async def proxy_status(current_user=Depends(get_current_user)):
