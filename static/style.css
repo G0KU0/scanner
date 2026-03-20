@@ -2,287 +2,287 @@
    HOTMAIL INBOXER - ULTRA MODERN UI V4 VIP
    ============================================================ */
 
-   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
-   :root {
-       --primary: #6366f1;
-       --primary-glow: rgba(99, 102, 241, 0.5);
-       --secondary: #a855f7;
-       --secondary-glow: rgba(168, 85, 247, 0.5);
-       --bg-dark: #050505;
-       --glass-bg: rgba(20, 20, 22, 0.6);
-       --glass-border: rgba(255, 255, 255, 0.08);
-   }
-   
-   * {
-       margin: 0;
-       padding: 0;
-       box-sizing: border-box;
-       scroll-behavior: smooth;
-   }
-   
-   body {
-       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-       background-color: var(--bg-dark);
-       color: #ffffff;
-       overflow-x: hidden;
-       min-height: 100vh;
-   }
-   
-   /* ============================================================
-      ANIMATED AURORA BACKGROUND
-      ============================================================ */
-   .app-bg {
-       position: fixed;
-       top: 0;
-       left: 0;
-       width: 100vw;
-       height: 100vh;
-       z-index: 0;
-       overflow: hidden;
-       background: var(--bg-dark);
-   }
-   
-   .orb {
-       position: absolute;
-       border-radius: 50%;
-       filter: blur(80px);
-       opacity: 0.6;
-       animation: float 20s infinite ease-in-out alternate;
-   }
-   
-   .orb-1 {
-       width: 400px;
-       height: 400px;
-       background: var(--primary);
-       top: -100px;
-       left: -100px;
-       animation-delay: 0s;
-   }
-   
-   .orb-2 {
-       width: 500px;
-       height: 500px;
-       background: var(--secondary);
-       bottom: -150px;
-       right: -100px;
-       animation-delay: -5s;
-   }
-   
-   .orb-3 {
-       width: 300px;
-       height: 300px;
-       background: #3b82f6;
-       top: 40%;
-       left: 50%;
-       transform: translate(-50%, -50%);
-       animation-delay: -10s;
-       opacity: 0.4;
-   }
-   
-   @keyframes float {
-       0% { transform: translate(0, 0) scale(1); }
-       50% { transform: translate(50px, 50px) scale(1.1); }
-       100% { transform: translate(-30px, -20px) scale(0.9); }
-   }
-   
-   .grid-overlay {
-       position: absolute;
-       top: 0;
-       left: 0;
-       width: 100%;
-       height: 100%;
-       background-image: 
-           linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-           linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-       background-size: 30px 30px;
-       z-index: 0;
-       mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
-       -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
-   }
-   
-   /* ============================================================
-      PREMIUM GLASS CARDS
-      ============================================================ */
-   .glass-card {
-       background: var(--glass-bg);
-       backdrop-filter: blur(24px);
-       -webkit-backdrop-filter: blur(24px);
-       border: 1px solid var(--glass-border);
-       border-top: 1px solid rgba(255, 255, 255, 0.15);
-       border-left: 1px solid rgba(255, 255, 255, 0.15);
-       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-       position: relative;
-       z-index: 10;
-   }
-   
-   /* ============================================================
-      INPUTS
-      ============================================================ */
-   .glass-input {
-       width: 100%;
-       padding: 16px 20px;
-       border-radius: 16px;
-       background: rgba(0, 0, 0, 0.4);
-       border: 1px solid rgba(255, 255, 255, 0.1);
-       color: white;
-       font-size: 15px;
-       font-family: 'Inter', sans-serif;
-       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-       outline: none;
-       box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
-   }
-   
-   .glass-input:focus {
-       background: rgba(0, 0, 0, 0.6);
-       border-color: var(--primary);
-       box-shadow: 
-           inset 0 2px 4px rgba(0,0,0,0.5),
-           0 0 0 4px rgba(99, 102, 241, 0.15),
-           0 0 20px rgba(99, 102, 241, 0.2);
-       transform: translateY(-1px);
-   }
-   
-   .glass-input::placeholder {
-       color: rgba(255, 255, 255, 0.3);
-       font-weight: 500;
-   }
-   
-   /* ============================================================
-      BUTTONS
-      ============================================================ */
-   .glass-button {
-       width: 100%;
-       padding: 16px 24px;
-       background: linear-gradient(135deg, var(--primary), var(--secondary));
-       border: none;
-       border-radius: 16px;
-       color: white;
-       font-weight: 700;
-       font-size: 16px;
-       font-family: 'Inter', sans-serif;
-       cursor: pointer;
-       transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-       display: flex;
-       align-items: center;
-       justify-content: center;
-       gap: 12px;
-       position: relative;
-       overflow: hidden;
-       box-shadow: 0 10px 20px -5px var(--primary-glow);
-   }
-   
-   .glass-button::after {
-       content: '';
-       position: absolute;
-       top: 0;
-       left: -100%;
-       width: 50%;
-       height: 100%;
-       background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-       transform: skewX(-20deg);
-       transition: left 0.7s ease;
-   }
-   
-   .glass-button:hover::after { left: 150%; }
-   .glass-button:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 15px 25px -5px var(--secondary-glow), 0 0 15px var(--primary-glow); }
-   .glass-button:active { transform: translateY(1px); }
-   
-   /* ============================================================
-      FILE INPUT
-      ============================================================ */
-   .file-input {
-       width: 100%;
-       padding: 12px;
-       background: rgba(0, 0, 0, 0.3);
-       border: 2px dashed rgba(255, 255, 255, 0.2);
-       border-radius: 16px;
-       color: white;
-       font-size: 14px;
-       transition: all 0.3s ease;
-   }
-   
-   .file-input:hover { border-color: var(--secondary); background: rgba(168, 85, 247, 0.05); }
-   
-   .file-input::file-selector-button {
-       margin-right: 16px;
-       padding: 10px 20px;
-       background: rgba(255, 255, 255, 0.1);
-       color: white;
-       border: 1px solid rgba(255, 255, 255, 0.2);
-       border-radius: 10px;
-       font-weight: 600;
-       cursor: pointer;
-       transition: all 0.3s ease;
-   }
-   
-   .file-input::file-selector-button:hover { background: white; color: black; }
-   
-   /* ============================================================
-      STATS CARDS
-      ============================================================ */
-   .stat-card {
-       background: linear-gradient(180deg, rgba(30, 30, 35, 0.8) 0%, rgba(20, 20, 22, 0.9) 100%);
-       border: 1px solid rgba(255, 255, 255, 0.05);
-       border-radius: 24px;
-       padding: 24px;
-       text-align: center;
-       transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-       position: relative;
-       overflow: hidden;
-   }
-   
-   .stat-card::before {
-       content: '';
-       position: absolute;
-       top: 0; left: 0; width: 100%; height: 100%;
-       background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.1), transparent 70%);
-       opacity: 0;
-       transition: opacity 0.4s ease;
-   }
-   
-   .stat-card:hover::before { opacity: 1; }
-   .stat-card:hover { transform: translateY(-8px); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); }
-   
-   .stat-value {
-       font-size: 3.5rem;
-       font-weight: 900;
-       margin-bottom: 4px;
-       font-family: 'JetBrains Mono', monospace;
-       letter-spacing: -2px;
-       text-shadow: 0 0 20px currentColor;
-   }
-   
-   .stat-label { font-size: 0.75rem; font-weight: 800; opacity: 0.7; text-transform: uppercase; letter-spacing: 3px; }
-   
-   /* ============================================================
-      LOG BOX & SCROLLBARS
-      ============================================================ */
-   #logBox, #previewBox { scrollbar-width: thin; scrollbar-color: var(--primary) rgba(0,0,0,0.3); font-family: 'JetBrains Mono', monospace; }
-   ::-webkit-scrollbar { width: 6px; }
-   ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 10px; }
-   ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
-   ::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
-   
-   .log-line { padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 12px; line-height: 1.5; border-left: 2px solid transparent; }
-   .log-line:hover { background: rgba(255, 255, 255, 0.05); }
-   .log-time { opacity: 0.5; margin-right: 8px; font-size: 10px; }
-   
-   .log-hit { color: #4ade80; background: rgba(34, 197, 94, 0.05); border-left-color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, 0.3); }
-   .log-custom { color: #22d3ee; background: rgba(34, 211, 238, 0.05); border-left-color: #22d3ee; }
-   .log-bad { color: #f87171; opacity: 0.6; }
-   
-   /* ============================================================
-      ANIMATIONS
-      ============================================================ */
-   @keyframes fadeIn {
-       from { opacity: 0; transform: translateY(30px) scale(0.98); }
-       to { opacity: 1; transform: translateY(0) scale(1); }
-   }
-   .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-   
-   .text-gradient {
-       background: linear-gradient(to right, #fff, #a5b4fc);
-       -webkit-background-clip: text;
-       -webkit-text-fill-color: transparent;
-   }
+:root {
+    --primary: #6366f1;
+    --primary-glow: rgba(99, 102, 241, 0.5);
+    --secondary: #a855f7;
+    --secondary-glow: rgba(168, 85, 247, 0.5);
+    --bg-dark: #050505;
+    --glass-bg: rgba(20, 20, 22, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: var(--bg-dark);
+    color: #ffffff;
+    overflow-x: hidden;
+    min-height: 100vh;
+}
+
+/* ============================================================
+   ANIMATED AURORA BACKGROUND
+   ============================================================ */
+.app-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    overflow: hidden;
+    background: var(--bg-dark);
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.6;
+    animation: float 20s infinite ease-in-out alternate;
+}
+
+.orb-1 {
+    width: 400px;
+    height: 400px;
+    background: var(--primary);
+    top: -100px;
+    left: -100px;
+    animation-delay: 0s;
+}
+
+.orb-2 {
+    width: 500px;
+    height: 500px;
+    background: var(--secondary);
+    bottom: -150px;
+    right: -100px;
+    animation-delay: -5s;
+}
+
+.orb-3 {
+    width: 300px;
+    height: 300px;
+    background: #3b82f6;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation-delay: -10s;
+    opacity: 0.4;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(50px, 50px) scale(1.1); }
+    100% { transform: translate(-30px, -20px) scale(0.9); }
+}
+
+.grid-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 30px 30px;
+    z-index: 0;
+    mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+    -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+}
+
+/* ============================================================
+   PREMIUM GLASS CARDS
+   ============================================================ */
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border);
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    border-left: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    position: relative;
+    z-index: 10;
+}
+
+/* ============================================================
+   INPUTS
+   ============================================================ */
+.glass-input {
+    width: 100%;
+    padding: 16px 20px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 15px;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+}
+
+.glass-input:focus {
+    background: rgba(0, 0, 0, 0.6);
+    border-color: var(--primary);
+    box-shadow: 
+        inset 0 2px 4px rgba(0,0,0,0.5),
+        0 0 0 4px rgba(99, 102, 241, 0.15),
+        0 0 20px rgba(99, 102, 241, 0.2);
+    transform: translateY(-1px);
+}
+
+.glass-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+    font-weight: 500;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.glass-button {
+    width: 100%;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border: none;
+    border-radius: 16px;
+    color: white;
+    font-weight: 700;
+    font-size: 16px;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 20px -5px var(--primary-glow);
+}
+
+.glass-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.7s ease;
+}
+
+.glass-button:hover::after { left: 150%; }
+.glass-button:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 15px 25px -5px var(--secondary-glow), 0 0 15px var(--primary-glow); }
+.glass-button:active { transform: translateY(1px); }
+
+/* ============================================================
+   FILE INPUT
+   ============================================================ */
+.file-input {
+    width: 100%;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    color: white;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.file-input:hover { border-color: var(--secondary); background: rgba(168, 85, 247, 0.05); }
+
+.file-input::file-selector-button {
+    margin-right: 16px;
+    padding: 10px 20px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.file-input::file-selector-button:hover { background: white; color: black; }
+
+/* ============================================================
+   STATS CARDS
+   ============================================================ */
+.stat-card {
+    background: linear-gradient(180deg, rgba(30, 30, 35, 0.8) 0%, rgba(20, 20, 22, 0.9) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 24px;
+    padding: 24px;
+    text-align: center;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.1), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.stat-card:hover::before { opacity: 1; }
+.stat-card:hover { transform: translateY(-8px); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); }
+
+.stat-value {
+    font-size: 3.5rem;
+    font-weight: 900;
+    margin-bottom: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -2px;
+    text-shadow: 0 0 20px currentColor;
+}
+
+.stat-label { font-size: 0.75rem; font-weight: 800; opacity: 0.7; text-transform: uppercase; letter-spacing: 3px; }
+
+/* ============================================================
+   LOG BOX & SCROLLBARS
+   ============================================================ */
+#logBox, #previewBox { scrollbar-width: thin; scrollbar-color: var(--primary) rgba(0,0,0,0.3); font-family: 'JetBrains Mono', monospace; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 10px; }
+::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
+
+.log-line { padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 12px; line-height: 1.5; border-left: 2px solid transparent; }
+.log-line:hover { background: rgba(255, 255, 255, 0.05); }
+.log-time { opacity: 0.5; margin-right: 8px; font-size: 10px; }
+
+.log-hit { color: #4ade80; background: rgba(34, 197, 94, 0.05); border-left-color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, 0.3); }
+.log-custom { color: #22d3ee; background: rgba(34, 211, 238, 0.05); border-left-color: #22d3ee; }
+.log-bad { color: #f87171; opacity: 0.6; }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(30px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+.text-gradient {
+    background: linear-gradient(to right, #fff, #a5b4fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
