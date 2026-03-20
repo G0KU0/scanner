@@ -1,571 +1,288 @@
 /* ============================================================
-   HOTMAIL INBOXER - MODERN UI by Szabx
+   HOTMAIL INBOXER - ULTRA MODERN UI V4 VIP
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    overflow-x: hidden;
-}
-
-/* ============================================================
-   BACKGROUNDS (Animated Gradient)
-   ============================================================ */
-.login-bg {
-    background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #0f0c29);
-    background-size: 400% 400%;
-    animation: gradientBG 15s ease infinite;
-    min-height: 100vh;
-    position: relative;
-}
-
-.register-bg {
-    background: linear-gradient(-45deg, #1a002e, #4a0072, #24243e, #1a002e);
-    background-size: 400% 400%;
-    animation: gradientBG 15s ease infinite;
-    min-height: 100vh;
-    position: relative;
-}
-
-.dashboard-bg {
-    background: linear-gradient(135deg, #0a0a1a 0%, #111133 50%, #0a0a1a 100%);
-    min-height: 100vh;
-}
-
-@keyframes gradientBG {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-/* Floating particles */
-.login-bg::before,
-.register-bg::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: 
-        radial-gradient(2px 2px at 20px 30px, rgba(255,255,255,0.15), transparent),
-        radial-gradient(2px 2px at 40px 70px, rgba(255,255,255,0.1), transparent),
-        radial-gradient(2px 2px at 50px 160px, rgba(255,255,255,0.12), transparent),
-        radial-gradient(2px 2px at 90px 40px, rgba(255,255,255,0.08), transparent),
-        radial-gradient(2px 2px at 130px 80px, rgba(255,255,255,0.15), transparent),
-        radial-gradient(2px 2px at 160px 120px, rgba(255,255,255,0.06), transparent);
-    background-repeat: repeat;
-    background-size: 200px 200px;
-    animation: particleFloat 20s linear infinite;
-    pointer-events: none;
-    z-index: 0;
-}
-
-@keyframes particleFloat {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(-200px); }
-}
-
-/* ============================================================
-   GLASS MORPHISM (ENHANCED)
-   ============================================================ */
-.glass-card {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 
-        0 8px 32px rgba(0, 0, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    position: relative;
-    z-index: 1;
-}
-
-.glass-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-}
-
-.glass-input {
-    width: 100%;
-    padding: 14px 18px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: white;
-    font-size: 15px;
-    font-family: 'Inter', sans-serif;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    outline: none;
-}
-
-.glass-input:focus {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(99, 102, 241, 0.6);
-    box-shadow: 
-        0 0 0 3px rgba(99, 102, 241, 0.15),
-        0 0 20px rgba(99, 102, 241, 0.1);
-}
-
-.glass-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.glass-button {
-    width: 100%;
-    padding: 16px 24px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    border: none;
-    border-radius: 14px;
-    color: white;
-    font-weight: 700;
-    font-size: 16px;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    position: relative;
-    overflow: hidden;
-}
-
-.glass-button::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-    transition: left 0.5s;
-}
-
-.glass-button:hover::before {
-    left: 100%;
-}
-
-.glass-button:hover {
-    transform: translateY(-3px);
-    box-shadow: 
-        0 10px 30px rgba(99, 102, 241, 0.4),
-        0 0 0 1px rgba(99, 102, 241, 0.3);
-}
-
-.glass-button:active {
-    transform: translateY(-1px);
-}
-
-.glass-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-}
-
-/* ============================================================
-   FILE INPUT (MODERN)
-   ============================================================ */
-.file-input {
-    width: 100%;
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 2px dashed rgba(255, 255, 255, 0.15);
-    border-radius: 14px;
-    color: white;
-    font-size: 14px;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.file-input:hover {
-    border-color: rgba(99, 102, 241, 0.5);
-    background: rgba(99, 102, 241, 0.05);
-}
-
-.file-input::file-selector-button {
-    margin-right: 14px;
-    padding: 10px 20px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: white;
-    border: none;
-    border-radius: 10px;
-    font-weight: 600;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.file-input::file-selector-button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
-}
-
-/* ============================================================
-   STATS CARDS (ENHANCED)
-   ============================================================ */
-.stat-card {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 20px;
-    padding: 28px;
-    text-align: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-}
-
-.stat-card::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    border-radius: 0 0 20px 20px;
-}
-
-.stat-hit::after { background: linear-gradient(90deg, #22c55e, #4ade80); }
-.stat-custom::after { background: linear-gradient(90deg, #06b6d4, #67e8f9); }
-.stat-bad::after { background: linear-gradient(90deg, #ef4444, #f87171); }
-.stat-retry::after { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-
-.stat-card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
-    border-color: rgba(255, 255, 255, 0.15);
-}
-
-.stat-value {
-    font-size: 3rem;
-    font-weight: 900;
-    margin-bottom: 8px;
-    font-family: 'JetBrains Mono', monospace;
-    letter-spacing: -2px;
-}
-
-.stat-label {
-    font-size: 0.8rem;
-    font-weight: 700;
-    opacity: 0.6;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-
-.stat-hit .stat-value { color: #4ade80; }
-.stat-custom .stat-value { color: #67e8f9; }
-.stat-bad .stat-value { color: #f87171; }
-.stat-retry .stat-value { color: #fbbf24; }
-
-/* ============================================================
-   PROGRESS BAR (ENHANCED)
-   ============================================================ */
-.progress-bar {
-    background: linear-gradient(90deg, #6366f1, #8b5cf6, #a78bfa, #6366f1);
-    background-size: 300% 100%;
-    animation: shimmer 2s ease infinite;
-    box-shadow: 0 0 25px rgba(99, 102, 241, 0.5);
-    border-radius: 20px;
-}
-
-@keyframes shimmer {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-/* ============================================================
-   DOWNLOAD BUTTONS (ENHANCED)
-   ============================================================ */
-.download-btn {
-    padding: 18px;
-    border-radius: 16px;
-    font-weight: 700;
-    font-size: 15px;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    border: 2px solid;
-    position: relative;
-    overflow: hidden;
-}
-
-.download-hit {
-    background: rgba(34, 197, 94, 0.08);
-    border-color: rgba(34, 197, 94, 0.3);
-    color: #4ade80;
-}
-
-.download-hit:hover {
-    background: rgba(34, 197, 94, 0.15);
-    transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(34, 197, 94, 0.2);
-}
-
-.download-custom {
-    background: rgba(6, 182, 212, 0.08);
-    border-color: rgba(6, 182, 212, 0.3);
-    color: #67e8f9;
-}
-
-.download-custom:hover {
-    background: rgba(6, 182, 212, 0.15);
-    transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(6, 182, 212, 0.2);
-}
-
-.mini-download-btn {
-    padding: 8px 16px;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.3);
-    border-radius: 10px;
-    color: #a5b4fc;
-    font-size: 12px;
-    font-weight: 600;
-    text-decoration: none;
-    transition: all 0.3s ease;
-    display: inline-block;
-    font-family: 'Inter', sans-serif;
-}
-
-.mini-download-btn:hover {
-    background: rgba(99, 102, 241, 0.2);
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(99, 102, 241, 0.2);
-}
-
-/* ============================================================
-   LOG BOX (ENHANCED)
-   ============================================================ */
-#logBox {
-    scrollbar-width: thin;
-    scrollbar-color: #6366f1 rgba(0,0,0,0.2);
-    font-family: 'JetBrains Mono', monospace;
-}
-
-#logBox::-webkit-scrollbar {
-    width: 8px;
-}
-
-#logBox::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 4px;
-}
-
-#logBox::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #6366f1, #8b5cf6);
-    border-radius: 4px;
-}
-
-.log-line {
-    padding: 10px 14px;
-    border-radius: 8px;
-    margin-bottom: 4px;
-    font-size: 12.5px;
-    line-height: 1.6;
-    transition: all 0.2s ease;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.log-line:hover {
-    background: rgba(255, 255, 255, 0.03);
-}
-
-.log-time {
-    opacity: 0.4;
-    margin-right: 10px;
-    font-size: 11px;
-}
-
-.log-hit {
-    color: #4ade80;
-    background: rgba(34, 197, 94, 0.04);
-    border-left: 3px solid #22c55e;
-}
-
-.log-custom {
-    color: #67e8f9;
-    background: rgba(6, 182, 212, 0.04);
-    border-left: 3px solid #06b6d4;
-}
-
-.log-bad {
-    color: #f87171;
-    opacity: 0.5;
-    font-size: 11px;
-}
-
-.log-info {
-    color: #a78bfa;
-}
-
-.log-finish {
-    color: #fbbf24;
-    font-weight: 700;
-    font-size: 15px;
-    text-align: center;
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    padding: 14px;
-    border-radius: 12px;
-}
-
-.log-default {
-    color: rgba(255, 255, 255, 0.5);
-}
-
-/* ============================================================
-   HISTORY (ENHANCED)
-   ============================================================ */
-.history-item {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    padding: 20px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.history-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-    transform: translateX(6px);
-    border-color: rgba(99, 102, 241, 0.2);
-}
-
-.status-running {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.3);
-    color: #a5b4fc;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-}
-
-.status-finished {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.3);
-    color: #4ade80;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-}
-
-/* ============================================================
-   FOOTER
-   ============================================================ */
-.footer {
-    text-align: center;
-    padding: 30px 20px;
-    color: rgba(255, 255, 255, 0.2);
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 1px;
-}
-
-.footer-brand {
-    color: rgba(99, 102, 241, 0.6);
-    font-weight: 800;
-    font-size: 15px;
-    letter-spacing: 2px;
-}
-
-.footer-divider {
-    width: 60px;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
-    margin: 12px auto;
-}
-
-/* ============================================================
-   ANIMATIONS
-   ============================================================ */
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(24px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.animate-fade-in {
-    animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-8px); }
-    75% { transform: translateX(8px); }
-}
-
-.animate-shake {
-    animation: shake 0.4s ease-in-out;
-}
-
-.loading {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-/* ============================================================
-   RESPONSIVE
-   ============================================================ */
-@media (max-width: 768px) {
-    .stat-value {
-        font-size: 2rem;
-    }
-    
-    .glass-card {
-        padding: 20px !important;
-    }
-    
-    #logBox {
-        height: 350px !important;
-    }
-    
-    .footer {
-        padding: 20px 10px;
-    }
-}
+   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+   :root {
+       --primary: #6366f1;
+       --primary-glow: rgba(99, 102, 241, 0.5);
+       --secondary: #a855f7;
+       --secondary-glow: rgba(168, 85, 247, 0.5);
+       --bg-dark: #050505;
+       --glass-bg: rgba(20, 20, 22, 0.6);
+       --glass-border: rgba(255, 255, 255, 0.08);
+   }
+   
+   * {
+       margin: 0;
+       padding: 0;
+       box-sizing: border-box;
+       scroll-behavior: smooth;
+   }
+   
+   body {
+       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       background-color: var(--bg-dark);
+       color: #ffffff;
+       overflow-x: hidden;
+       min-height: 100vh;
+   }
+   
+   /* ============================================================
+      ANIMATED AURORA BACKGROUND
+      ============================================================ */
+   .app-bg {
+       position: fixed;
+       top: 0;
+       left: 0;
+       width: 100vw;
+       height: 100vh;
+       z-index: 0;
+       overflow: hidden;
+       background: var(--bg-dark);
+   }
+   
+   .orb {
+       position: absolute;
+       border-radius: 50%;
+       filter: blur(80px);
+       opacity: 0.6;
+       animation: float 20s infinite ease-in-out alternate;
+   }
+   
+   .orb-1 {
+       width: 400px;
+       height: 400px;
+       background: var(--primary);
+       top: -100px;
+       left: -100px;
+       animation-delay: 0s;
+   }
+   
+   .orb-2 {
+       width: 500px;
+       height: 500px;
+       background: var(--secondary);
+       bottom: -150px;
+       right: -100px;
+       animation-delay: -5s;
+   }
+   
+   .orb-3 {
+       width: 300px;
+       height: 300px;
+       background: #3b82f6;
+       top: 40%;
+       left: 50%;
+       transform: translate(-50%, -50%);
+       animation-delay: -10s;
+       opacity: 0.4;
+   }
+   
+   @keyframes float {
+       0% { transform: translate(0, 0) scale(1); }
+       50% { transform: translate(50px, 50px) scale(1.1); }
+       100% { transform: translate(-30px, -20px) scale(0.9); }
+   }
+   
+   .grid-overlay {
+       position: absolute;
+       top: 0;
+       left: 0;
+       width: 100%;
+       height: 100%;
+       background-image: 
+           linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+           linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+       background-size: 30px 30px;
+       z-index: 0;
+       mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+       -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+   }
+   
+   /* ============================================================
+      PREMIUM GLASS CARDS
+      ============================================================ */
+   .glass-card {
+       background: var(--glass-bg);
+       backdrop-filter: blur(24px);
+       -webkit-backdrop-filter: blur(24px);
+       border: 1px solid var(--glass-border);
+       border-top: 1px solid rgba(255, 255, 255, 0.15);
+       border-left: 1px solid rgba(255, 255, 255, 0.15);
+       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+       position: relative;
+       z-index: 10;
+   }
+   
+   /* ============================================================
+      INPUTS
+      ============================================================ */
+   .glass-input {
+       width: 100%;
+       padding: 16px 20px;
+       border-radius: 16px;
+       background: rgba(0, 0, 0, 0.4);
+       border: 1px solid rgba(255, 255, 255, 0.1);
+       color: white;
+       font-size: 15px;
+       font-family: 'Inter', sans-serif;
+       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+       outline: none;
+       box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+   }
+   
+   .glass-input:focus {
+       background: rgba(0, 0, 0, 0.6);
+       border-color: var(--primary);
+       box-shadow: 
+           inset 0 2px 4px rgba(0,0,0,0.5),
+           0 0 0 4px rgba(99, 102, 241, 0.15),
+           0 0 20px rgba(99, 102, 241, 0.2);
+       transform: translateY(-1px);
+   }
+   
+   .glass-input::placeholder {
+       color: rgba(255, 255, 255, 0.3);
+       font-weight: 500;
+   }
+   
+   /* ============================================================
+      BUTTONS
+      ============================================================ */
+   .glass-button {
+       width: 100%;
+       padding: 16px 24px;
+       background: linear-gradient(135deg, var(--primary), var(--secondary));
+       border: none;
+       border-radius: 16px;
+       color: white;
+       font-weight: 700;
+       font-size: 16px;
+       font-family: 'Inter', sans-serif;
+       cursor: pointer;
+       transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       gap: 12px;
+       position: relative;
+       overflow: hidden;
+       box-shadow: 0 10px 20px -5px var(--primary-glow);
+   }
+   
+   .glass-button::after {
+       content: '';
+       position: absolute;
+       top: 0;
+       left: -100%;
+       width: 50%;
+       height: 100%;
+       background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+       transform: skewX(-20deg);
+       transition: left 0.7s ease;
+   }
+   
+   .glass-button:hover::after { left: 150%; }
+   .glass-button:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 15px 25px -5px var(--secondary-glow), 0 0 15px var(--primary-glow); }
+   .glass-button:active { transform: translateY(1px); }
+   
+   /* ============================================================
+      FILE INPUT
+      ============================================================ */
+   .file-input {
+       width: 100%;
+       padding: 12px;
+       background: rgba(0, 0, 0, 0.3);
+       border: 2px dashed rgba(255, 255, 255, 0.2);
+       border-radius: 16px;
+       color: white;
+       font-size: 14px;
+       transition: all 0.3s ease;
+   }
+   
+   .file-input:hover { border-color: var(--secondary); background: rgba(168, 85, 247, 0.05); }
+   
+   .file-input::file-selector-button {
+       margin-right: 16px;
+       padding: 10px 20px;
+       background: rgba(255, 255, 255, 0.1);
+       color: white;
+       border: 1px solid rgba(255, 255, 255, 0.2);
+       border-radius: 10px;
+       font-weight: 600;
+       cursor: pointer;
+       transition: all 0.3s ease;
+   }
+   
+   .file-input::file-selector-button:hover { background: white; color: black; }
+   
+   /* ============================================================
+      STATS CARDS
+      ============================================================ */
+   .stat-card {
+       background: linear-gradient(180deg, rgba(30, 30, 35, 0.8) 0%, rgba(20, 20, 22, 0.9) 100%);
+       border: 1px solid rgba(255, 255, 255, 0.05);
+       border-radius: 24px;
+       padding: 24px;
+       text-align: center;
+       transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+       position: relative;
+       overflow: hidden;
+   }
+   
+   .stat-card::before {
+       content: '';
+       position: absolute;
+       top: 0; left: 0; width: 100%; height: 100%;
+       background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.1), transparent 70%);
+       opacity: 0;
+       transition: opacity 0.4s ease;
+   }
+   
+   .stat-card:hover::before { opacity: 1; }
+   .stat-card:hover { transform: translateY(-8px); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); }
+   
+   .stat-value {
+       font-size: 3.5rem;
+       font-weight: 900;
+       margin-bottom: 4px;
+       font-family: 'JetBrains Mono', monospace;
+       letter-spacing: -2px;
+       text-shadow: 0 0 20px currentColor;
+   }
+   
+   .stat-label { font-size: 0.75rem; font-weight: 800; opacity: 0.7; text-transform: uppercase; letter-spacing: 3px; }
+   
+   /* ============================================================
+      LOG BOX & SCROLLBARS
+      ============================================================ */
+   #logBox, #previewBox { scrollbar-width: thin; scrollbar-color: var(--primary) rgba(0,0,0,0.3); font-family: 'JetBrains Mono', monospace; }
+   ::-webkit-scrollbar { width: 6px; }
+   ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 10px; }
+   ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+   ::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
+   
+   .log-line { padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 12px; line-height: 1.5; border-left: 2px solid transparent; }
+   .log-line:hover { background: rgba(255, 255, 255, 0.05); }
+   .log-time { opacity: 0.5; margin-right: 8px; font-size: 10px; }
+   
+   .log-hit { color: #4ade80; background: rgba(34, 197, 94, 0.05); border-left-color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, 0.3); }
+   .log-custom { color: #22d3ee; background: rgba(34, 211, 238, 0.05); border-left-color: #22d3ee; }
+   .log-bad { color: #f87171; opacity: 0.6; }
+   
+   /* ============================================================
+      ANIMATIONS
+      ============================================================ */
+   @keyframes fadeIn {
+       from { opacity: 0; transform: translateY(30px) scale(0.98); }
+       to { opacity: 1; transform: translateY(0) scale(1); }
+   }
+   .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+   
+   .text-gradient {
+       background: linear-gradient(to right, #fff, #a5b4fc);
+       -webkit-background-clip: text;
+       -webkit-text-fill-color: transparent;
+   }
