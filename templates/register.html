@@ -11,27 +11,28 @@
 </head>
 <body class="register-bg">
     <div class="min-h-screen flex flex-col items-center justify-center p-4">
-        <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in">
+        <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in relative overflow-hidden">
             
-            <!-- LOGO -->
-            <div class="text-center mb-10">
+            <div class="absolute -top-20 -right-20 w-52 h-52 bg-purple-500/20 blur-[60px] rounded-full pointer-events-none"></div>
+            <div class="absolute -bottom-20 -left-20 w-52 h-52 bg-indigo-500/20 blur-[60px] rounded-full pointer-events-none"></div>
+
+            <div class="text-center mb-10 relative z-10">
                 <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-5"
-                     style="background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 10px 30px rgba(139,92,246,0.4);">
+                     style="background: linear-gradient(135deg, #8b5cf6, #3b82f6); box-shadow: 0 10px 30px rgba(139,92,246,0.3);">
                     <i data-lucide="user-plus" class="w-10 h-10 text-white"></i>
                 </div>
                 <h1 class="text-3xl font-black text-white mb-2 tracking-tight">
-                    Regisztráció
+                    VIP Regisztráció
                 </h1>
-                <p class="text-white/40 text-sm tracking-widest uppercase">
-                    Készítette <span class="text-purple-400 font-bold">Szaby</span>
+                <p class="text-white/50 text-xs tracking-widest uppercase font-semibold">
+                    Zártkörű Rendszer
                 </p>
             </div>
             
-            <!-- FORM -->
-            <form id="registerForm" class="space-y-5">
+            <form id="registerForm" class="space-y-5 relative z-10">
                 <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="mail" class="w-3.5 h-3.5"></i>
+                    <label class="block text-white/70 text-xs mb-2 font-bold uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="mail" class="w-3.5 h-3.5 text-purple-400"></i>
                         Email cím
                     </label>
                     <input type="email" id="email" required
@@ -40,24 +41,33 @@
                 </div>
                 
                 <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+                    <label class="block text-white/70 text-xs mb-2 font-bold uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="shield" class="w-3.5 h-3.5 text-purple-400"></i>
                         Jelszó (min. 6 karakter)
                     </label>
                     <input type="password" id="password" required minlength="6"
                         placeholder="••••••••"
                         class="glass-input">
                 </div>
+
+                <div class="pt-2">
+                    <label class="block text-white/70 text-xs mb-2 font-bold uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="ticket" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        Meghívó kód (Invite)
+                    </label>
+                    <input type="text" id="invite_code" required
+                        placeholder="INBOX-XXXXXX"
+                        class="glass-input uppercase font-mono tracking-wider border-indigo-500/30 focus:border-indigo-400">
+                </div>
                 
-                <button type="submit" class="glass-button w-full mt-2" 
-                    style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
+                <button type="submit" class="glass-button w-full mt-6" 
+                    style="background: linear-gradient(135deg, #8b5cf6, #3b82f6);">
                     <span>Fiók létrehozása</span>
-                    <i data-lucide="check" class="w-5 h-5"></i>
+                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
                 </button>
             </form>
             
-            <!-- LOGIN LINK -->
-            <div class="mt-8 text-center">
+            <div class="mt-8 text-center relative z-10">
                 <p class="text-white/30 text-sm">Van már fiókod?</p>
                 <a href="/" class="text-purple-400 font-bold hover:text-purple-300 transition text-sm mt-1 inline-flex items-center gap-1">
                     Bejelentkezés
@@ -65,14 +75,12 @@
                 </a>
             </div>
             
-            <!-- ERROR -->
             <div id="error" class="hidden mt-4 p-3 bg-red-500/10 border border-red-500/30
-                text-red-300 rounded-xl text-sm flex items-center gap-2">
+                text-red-300 rounded-xl text-sm flex items-center gap-2 relative z-10">
             </div>
         </div>
         
-        <!-- FOOTER -->
-        <div class="footer mt-8">
+        <div class="footer mt-8 relative z-10">
             <div class="footer-divider"></div>
             <div class="flex items-center justify-center gap-2 mt-3">
                 <i data-lucide="code-2" class="w-4 h-4 text-purple-400/60"></i>
@@ -89,12 +97,14 @@
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
+            const originalText = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Regisztráció...';
             
             const formData = new FormData();
             formData.append('email', document.getElementById('email').value);
             formData.append('password', document.getElementById('password').value);
+            formData.append('invite_code', document.getElementById('invite_code').value.trim());
             
             try {
                 const res = await fetch('/api/register', { method: 'POST', body: formData });
@@ -110,14 +120,14 @@
                     err.classList.remove('hidden');
                     lucide.createIcons();
                     btn.disabled = false;
-                    btn.innerHTML = '<span>Fiók létrehozása</span><i data-lucide="check" class="w-5 h-5"></i>';
+                    btn.innerHTML = originalText;
                     lucide.createIcons();
-                    setTimeout(() => err.classList.add('hidden'), 3000);
+                    setTimeout(() => err.classList.add('hidden'), 4000);
                 }
             } catch(err) {
-                alert('Hiba: ' + err);
+                alert('Hiba történt a szerverhez való csatlakozáskor!');
                 btn.disabled = false;
-                btn.innerHTML = '<span>Fiók létrehozása</span>';
+                btn.innerHTML = originalText;
             }
         });
     </script>
