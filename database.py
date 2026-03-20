@@ -24,6 +24,7 @@ except Exception as e:
 
 users_collection = database.users
 runs_collection = database.runs
+invites_collection = database.invites  # ÚJ: Meghívó kódok gyűjteménye
 
 
 async def create_user(email: str, hashed_password: str):
@@ -66,10 +67,6 @@ async def create_run(user_id: str, keyword: str, total: int):
 
 
 async def delete_old_runs(user_id: str, keep_run_id: str):
-    """
-    Törli a felhasználó ÖSSZES korábbi futtatását a DB-ből,
-    KIVÉVE azt az egyet (keep_run_id), amit most hoztunk létre!
-    """
     try:
         await runs_collection.delete_many({
             "user_id": user_id,
@@ -171,3 +168,31 @@ async def get_active_run(user_id: str):
     return await runs_collection.find_one(
         {"user_id": user_id, "status": "running"}
     )
+
+# --- ÚJ MEGHÍVÓ KÓD FUNKCIÓK ---
+
+async def create_invite_code(code: str):
+    """Létrehoz egy új meghívó kódot"""
+    invite = {
+        "code": code,
+        "created_at": datetime.now(timezone.utc),
+        "is_used": False
+    }
+    await invites_collection.insert_one(invite)
+    return code
+
+
+async def get_invite_code(code: str):
+    """Lekérdez egy meghívó kódot"""
+    return await invites_collection.find_one({"code": code})
+
+
+async def delete_invite_code(code: str):
+    """Töröl egy meghívó kódot (vagy felhasználttá teszi)"""
+    await invites_collection.delete_one({"code": code})
+
+
+async def get_all_invites():
+    """Lekéri az összes meghívó kódot az admin számára"""
+    cursor = invites_collection.find().sort("created_at", -1)
+    return await cursor.to_list(length=100)
