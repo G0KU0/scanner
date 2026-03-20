@@ -10,7 +10,7 @@ import threading
 import os
 import json
 import requests
-import uuid # ÚJ IMPORT
+import uuid
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -25,7 +25,8 @@ stop_flags = {}
 stop_lock = threading.Lock()
 
 MAX_WORKERS = 40
-ADMIN_EMAIL = "xat.king6969@gmail.com" # ÚJ: ADMIN EMAIL CÍM
+ADMIN_EMAIL = "xat.king6969@gmail.com"  # IDE JÖN AZ ADMIN EMAIL
+
 
 def upload_to_external_api(content: str, filename: str) -> str:
     if not content or len(content.strip()) == 0:
@@ -94,7 +95,7 @@ async def lifespan(app: FastAPI):
             stop_flags[user_id].set()
 
 
-app = FastAPI(title="Hotmail Inboxer", lifespan=lifespan)
+app = FastAPI(title="Hotmail Inboxer VIP", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -126,28 +127,27 @@ def broadcast_to_user(user_id: str, message: str):
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
-
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
-
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
-# ÚJ: Admin oldal renderelése
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
+
+# --- FELHASZNÁLÓI VÉGPONTOK ---
 
 @app.post("/api/register")
 async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
     
-    # ÚJ: Meghívó kód ellenőrzése
+    # Meghívó kód ellenőrzése
     invite = await get_invite_code(invite_code)
     if not invite or invite.get("is_used"):
         raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált meghívó kód!")
@@ -155,9 +155,10 @@ async def register(email: str = Form(...), password: str = Form(...), invite_cod
     if await get_user_by_email(email):
         raise HTTPException(status_code=400, detail="Foglalt email cím")
     
-    # Felhasználó létrehozása és kód törlése
-    await create_user(email, hash_password(password))
-    await delete_invite_code(invite_code)
+    # Felhasználó létrehozása
+    await create_user(email, hash_password(password), invite_code)
+    # Kód felhasználtra állítása
+    await mark_invite_used(invite_code, email)
     
     return {"token": create_access_token({"sub": email}), "email": email}
 
@@ -169,13 +170,32 @@ async def login(email: str = Form(...), password: str = Form(...)):
         raise HTTPException(status_code=401, detail="Hibás adatok")
     return {"token": create_access_token({"sub": email}), "email": email}
 
-# ==========================================
-# ÚJ ADMIN API VÉGPONTOK
-# ==========================================
+
+# --- ADMIN ÉS ZÁROLÁS VÉGPONTOK ---
+
+@app.get("/api/me")
+async def get_me(current_user=Depends(get_current_user)):
+    """Lekérdezi, hogy a felhasználó zárolva van-e"""
+    return {
+        "email": current_user["email"],
+        "needs_new_invite": current_user.get("needs_new_invite", False)
+    }
+
+@app.post("/api/reactivate")
+async def reactivate_account(invite_code: str = Form(...), current_user=Depends(get_current_user)):
+    """Feloldja a zárolt fiókot egy új kóddal"""
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált kód!")
+    
+    await reactivate_user(current_user["email"], invite_code)
+    await mark_invite_used(invite_code, current_user["email"])
+    return {"status": "success"}
+
 @app.get("/api/admin/invites")
 async def get_invites(current_user=Depends(get_current_user)):
     if current_user["email"] != ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Nincs jogosultságod ehhez a funkcióhoz!")
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     
     invites = await get_all_invites()
     for inv in invites:
@@ -188,7 +208,6 @@ async def generate_invite(current_user=Depends(get_current_user)):
     if current_user["email"] != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     
-    # Generálunk egy menő kinézetű kódot (pl. INBOX-A1B2C3D4)
     new_code = "INBOX-" + str(uuid.uuid4()).split('-')[0].upper()
     await create_invite_code(new_code)
     return {"status": "success", "code": new_code}
@@ -198,9 +217,13 @@ async def delete_invite(code: str, current_user=Depends(get_current_user)):
     if current_user["email"] != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
     
+    # Ha töröljük a kódot, zároljuk a felhasználót, aki használta
+    await set_user_needs_new_invite(code)
     await delete_invite_code(code)
     return {"status": "deleted"}
-# ==========================================
+
+
+# --- CHECKER VÉGPONTOK ---
 
 @app.get("/api/proxy_status")
 async def proxy_status(current_user=Depends(get_current_user)):
@@ -233,6 +256,10 @@ async def start_checker(
     threads: int = Form(MAX_WORKERS),
     current_user=Depends(get_current_user),
 ):
+    # ELLENŐRZÉS: Zárolva van-e a fiók?
+    if current_user.get("needs_new_invite"):
+        raise HTTPException(status_code=403, detail="Fiók zárolva! Kérj új meghívó kódot az admintól.")
+
     if await get_active_run(str(current_user["_id"])):
         raise HTTPException(status_code=400, detail="Már fut egy checker!")
 
@@ -553,7 +580,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - Parallel + Strict Validation")
+    print("  🚀 Hotmail Inboxer VIP - Admin & Lock System Active")
     print(f"  📡 http://0.0.0.0:{port}")
     print(f"  🧵 Max {MAX_WORKERS} párhuzamos szál")
     print("=" * 60 + "\n")
