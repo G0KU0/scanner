@@ -3,121 +3,486 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Regisztráció - Hotmail Inboxer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <title>Regisztráció - Hotmail Checker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0a0a1a;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bg-animation {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0; overflow: hidden;
+        }
+
+        .bg-animation .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.4;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .bg-animation .orb:nth-child(1) {
+            width: 600px; height: 600px;
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            top: -200px; right: -200px;
+            animation-delay: 0s;
+        }
+
+        .bg-animation .orb:nth-child(2) {
+            width: 400px; height: 400px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            bottom: -150px; left: -100px;
+            animation-delay: -7s;
+        }
+
+        .bg-animation .orb:nth-child(3) {
+            width: 350px; height: 350px;
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            top: 40%; left: 30%;
+            animation-delay: -12s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(50px, -50px) scale(1.1); }
+            50% { transform: translate(-30px, 30px) scale(0.9); }
+            75% { transform: translate(30px, 50px) scale(1.05); }
+        }
+
+        .particles {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1; pointer-events: none;
+        }
+
+        .particle {
+            position: absolute;
+            width: 3px; height: 3px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            animation: rise linear infinite;
+        }
+
+        @keyframes rise {
+            0% { transform: translateY(100vh) scale(0); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+        }
+
+        .register-wrapper {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 460px;
+            padding: 20px;
+        }
+
+        .register-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 45px 40px;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .register-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #11998e, #38ef7d, #667eea, #11998e);
+            background-size: 300% 100%;
+            animation: gradient-slide 4s linear infinite;
+        }
+
+        @keyframes gradient-slide {
+            0% { background-position: 0% 0%; }
+            100% { background-position: 300% 0%; }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-icon {
+            width: 70px; height: 70px;
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+            box-shadow: 0 10px 30px rgba(17,153,142,0.4);
+        }
+
+        .logo-icon i { font-size: 32px; color: white; }
+
+        .logo h1 {
+            color: white;
+            font-size: 26px;
+            font-weight: 700;
+        }
+
+        .logo p {
+            color: rgba(255,255,255,0.5);
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .invite-info {
+            background: rgba(102,126,234,0.1);
+            border: 1px solid rgba(102,126,234,0.2);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .invite-info i {
+            color: #667eea;
+            font-size: 20px;
+            margin-top: 2px;
+        }
+
+        .invite-info div {
+            color: rgba(255,255,255,0.7);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .invite-info strong {
+            color: white;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: rgba(255,255,255,0.7);
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-wrapper i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.3);
+            font-size: 16px;
+            transition: color 0.3s;
+        }
+
+        .input-wrapper input {
+            width: 100%;
+            padding: 15px 16px 15px 48px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            color: white;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s;
+        }
+
+        .input-wrapper input:focus {
+            outline: none;
+            border-color: #11998e;
+            background: rgba(255,255,255,0.1);
+            box-shadow: 0 0 0 3px rgba(17,153,142,0.15);
+        }
+
+        .input-wrapper input:focus ~ i {
+            color: #11998e;
+        }
+
+        .input-wrapper input::placeholder {
+            color: rgba(255,255,255,0.25);
+        }
+
+        .password-strength {
+            height: 3px;
+            margin-top: 8px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.1);
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            border-radius: 3px;
+            transition: all 0.3s;
+            width: 0%;
+        }
+
+        .btn-register {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            position: relative;
+        }
+
+        .btn-register:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(17,153,142,0.4);
+        }
+
+        .btn-register:active {
+            transform: translateY(0);
+        }
+
+        .btn-register.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .btn-register .spinner {
+            display: none;
+            width: 20px; height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto;
+        }
+
+        .btn-register.loading .btn-text { display: none; }
+        .btn-register.loading .spinner { display: block; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-msg {
+            background: rgba(231,76,60,0.15);
+            border: 1px solid rgba(231,76,60,0.3);
+            color: #e74c3c;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: none;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px); }
+            40% { transform: translateX(10px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .footer-links a {
+            color: #38ef7d;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover { color: #667eea; }
+
+        .footer-links span {
+            color: rgba(255,255,255,0.3);
+            font-size: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .register-card { padding: 35px 25px; }
+            .logo h1 { font-size: 22px; }
+        }
+    </style>
 </head>
-<body class="register-bg">
-    <div class="min-h-screen flex flex-col items-center justify-center p-4">
-        <div class="glass-card rounded-3xl p-10 max-w-md w-full shadow-2xl animate-fade-in">
-            
-            <!-- LOGO -->
-            <div class="text-center mb-10">
-                <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-5"
-                     style="background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 10px 30px rgba(139,92,246,0.4);">
-                    <i data-lucide="user-plus" class="w-10 h-10 text-white"></i>
+<body>
+
+    <div class="bg-animation">
+        <div class="orb"></div>
+        <div class="orb"></div>
+        <div class="orb"></div>
+    </div>
+
+    <div class="particles" id="particles"></div>
+
+    <div class="register-wrapper">
+        <div class="register-card">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-user-plus"></i>
                 </div>
-                <h1 class="text-3xl font-black text-white mb-2 tracking-tight">
-                    Regisztráció
-                </h1>
-                <p class="text-white/40 text-sm tracking-widest uppercase">
-                    Készítette <span class="text-purple-400 font-bold">Szaby</span>
-                </p>
+                <h1>Regisztráció</h1>
+                <p>Hozd létre a fiókodat meghívóval</p>
             </div>
-            
-            <!-- FORM -->
-            <form id="registerForm" class="space-y-5">
+
+            <div class="invite-info">
+                <i class="fas fa-info-circle"></i>
                 <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="mail" class="w-3.5 h-3.5"></i>
-                        Email cím
-                    </label>
-                    <input type="email" id="email" required
-                        placeholder="sajat@email.com"
-                        class="glass-input">
+                    <strong>Meghívó kód szükséges!</strong><br>
+                    Kérj meghívó kódot az adminisztrátortól a regisztrációhoz.
                 </div>
-                
-                <div>
-                    <label class="block text-white/60 text-xs mb-2 font-semibold uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
-                        Jelszó (min. 6 karakter)
-                    </label>
-                    <input type="password" id="password" required minlength="6"
-                        placeholder="••••••••"
-                        class="glass-input">
+            </div>
+
+            <div class="error-msg" id="error"></div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label>Email cím</label>
+                    <div class="input-wrapper">
+                        <input type="email" id="email" placeholder="pelda@email.com" required autocomplete="email">
+                        <i class="fas fa-envelope"></i>
+                    </div>
                 </div>
-                
-                <button type="submit" class="glass-button w-full mt-2" 
-                    style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
-                    <span>Fiók létrehozása</span>
-                    <i data-lucide="check" class="w-5 h-5"></i>
+                <div class="form-group">
+                    <label>Jelszó</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="password" placeholder="Minimum 6 karakter" required minlength="6">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                    <div class="password-strength">
+                        <div class="password-strength-bar" id="pwStrength"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Meghívó kód</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="invite_code" placeholder="Illeszd be a meghívó kódot" required>
+                        <i class="fas fa-ticket-alt"></i>
+                    </div>
+                </div>
+                <button type="submit" class="btn-register" id="registerBtn">
+                    <span class="btn-text">Regisztráció</span>
+                    <div class="spinner"></div>
                 </button>
             </form>
-            
-            <!-- LOGIN LINK -->
-            <div class="mt-8 text-center">
-                <p class="text-white/30 text-sm">Van már fiókod?</p>
-                <a href="/" class="text-purple-400 font-bold hover:text-purple-300 transition text-sm mt-1 inline-flex items-center gap-1">
-                    Bejelentkezés
-                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
-                </a>
-            </div>
-            
-            <!-- ERROR -->
-            <div id="error" class="hidden mt-4 p-3 bg-red-500/10 border border-red-500/30
-                text-red-300 rounded-xl text-sm flex items-center gap-2">
-            </div>
-        </div>
-        
-        <!-- FOOTER -->
-        <div class="footer mt-8">
-            <div class="footer-divider"></div>
-            <div class="flex items-center justify-center gap-2 mt-3">
-                <i data-lucide="code-2" class="w-4 h-4 text-purple-400/60"></i>
-                <span class="footer-brand">SZABY</span>
-                <span class="text-white/10">·</span>
-                <span class="text-white/20">Hotmail Inboxer</span>
+
+            <div class="footer-links">
+                <span>Van már fiókod?</span>
+                <a href="/">← Bejelentkezés</a>
             </div>
         </div>
     </div>
 
     <script>
-        lucide.createIcons();
-        
+        // Particles
+        const pc = document.getElementById('particles');
+        for (let i = 0; i < 50; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.animationDuration = (Math.random() * 10 + 5) + 's';
+            p.style.animationDelay = Math.random() * 10 + 's';
+            p.style.width = (Math.random() * 3 + 1) + 'px';
+            p.style.height = p.style.width;
+            pc.appendChild(p);
+        }
+
+        // Jelszó erősség
+        document.getElementById('password').addEventListener('input', (e) => {
+            const val = e.target.value;
+            const bar = document.getElementById('pwStrength');
+            let strength = 0;
+            if (val.length >= 6) strength += 25;
+            if (val.length >= 10) strength += 25;
+            if (/[A-Z]/.test(val) && /[a-z]/.test(val)) strength += 25;
+            if (/[0-9!@#$%^&*]/.test(val)) strength += 25;
+
+            bar.style.width = strength + '%';
+            if (strength <= 25) bar.style.background = '#e74c3c';
+            else if (strength <= 50) bar.style.background = '#f39c12';
+            else if (strength <= 75) bar.style.background = '#f1c40f';
+            else bar.style.background = '#2ecc71';
+        });
+
+        // Form submit
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const btn = e.target.querySelector('button');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Regisztráció...';
-            
-            const formData = new FormData();
-            formData.append('email', document.getElementById('email').value);
-            formData.append('password', document.getElementById('password').value);
-            
+
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const invite_code = document.getElementById('invite_code').value.trim();
+            const errorDiv = document.getElementById('error');
+            const btn = document.getElementById('registerBtn');
+
+            errorDiv.style.display = 'none';
+            btn.classList.add('loading');
+
             try {
-                const res = await fetch('/api/register', { method: 'POST', body: formData });
-                const data = await res.json();
-                
-                if (res.ok) {
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('email', data.email);
-                    window.location.href = '/dashboard';
-                } else {
-                    const err = document.getElementById('error');
-                    err.innerHTML = '<i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>' + data.detail;
-                    err.classList.remove('hidden');
-                    lucide.createIcons();
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>Fiók létrehozása</span><i data-lucide="check" class="w-5 h-5"></i>';
-                    lucide.createIcons();
-                    setTimeout(() => err.classList.add('hidden'), 3000);
+                const formData = new FormData();
+                formData.append('email', email);
+                formData.append('password', password);
+                formData.append('invite_code', invite_code);
+
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    errorDiv.textContent = err.detail || 'Hiba történt!';
+                    errorDiv.style.display = 'block';
+                    btn.classList.remove('loading');
+                    return;
                 }
-            } catch(err) {
-                alert('Hiba: ' + err);
-                btn.disabled = false;
-                btn.innerHTML = '<span>Fiók létrehozása</span>';
+
+                const data = await res.json();
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('email', data.email);
+                window.location.href = '/dashboard';
+            } catch (err) {
+                errorDiv.textContent = 'Hálózati hiba! Próbáld újra.';
+                errorDiv.style.display = 'block';
+                btn.classList.remove('loading');
             }
         });
     </script>
