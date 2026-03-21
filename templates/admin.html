@@ -8,57 +8,40 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-    <div class="app-bg">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
-        <div class="grid-overlay"></div>
-    </div>
+<body class="dashboard-bg min-h-screen p-4 md:p-8">
+    
+    <div class="max-w-4xl mx-auto relative z-10">
+        <div class="flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-black text-white flex items-center gap-3">
+                <i data-lucide="shield-check" class="text-indigo-400"></i>
+                Admin Panel
+            </h1>
+            <a href="/dashboard" class="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl transition text-sm">Vissza</a>
+        </div>
 
-    <div class="min-h-screen p-4 md:p-8 relative z-10">
-        <div class="max-w-4xl mx-auto">
-            
-            <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-500/20 border border-indigo-500/30">
-                            <i data-lucide="shield-check" class="text-indigo-400 w-6 h-6"></i>
-                        </div>
-                        Admin Vezérlőpult
-                    </h1>
-                    <p class="text-white/40 mt-2 text-sm">Meghívó kódok (Invite Codes) kezelése és hozzáférés megvonása</p>
-                </div>
-                <a href="/dashboard" class="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-white rounded-xl transition text-sm font-semibold flex items-center gap-2">
-                    <i data-lucide="arrow-left" class="w-4 h-4"></i> Vissza a Dashboardra
-                </a>
+        <div class="glass-card p-6 md:p-8 rounded-3xl animate-fade-in">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i data-lucide="key" class="w-5 h-5 text-purple-400"></i>
+                    Meghívó Kódok
+                </h2>
+                <button onclick="generateInvite()" class="glass-button !w-auto !px-6 !py-2.5 !text-sm flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Új Kód
+                </button>
             </div>
 
-            <div class="glass-card p-6 md:p-8 rounded-3xl animate-fade-in shadow-2xl">
-                <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 pb-6 border-b border-white/5">
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                        <i data-lucide="key" class="w-5 h-5 text-purple-400"></i>
-                        Generált Kódok Állapota
-                    </h2>
-                    <button onclick="generateInvite()" id="generateBtn" class="glass-button !w-full sm:!w-auto !px-6 !py-3 !text-sm flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400">
-                        <i data-lucide="plus-circle" class="w-4 h-4"></i> Új Kód Generálása
-                    </button>
-                </div>
-
-                <div class="overflow-x-auto rounded-xl border border-white/5 bg-black/20">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="border-b border-white/10 text-white/50 text-xs uppercase tracking-wider bg-black/40">
-                                <th class="p-4 font-semibold">Kód & Dátum</th>
-                                <th class="p-4 font-semibold">Állapot</th>
-                                <th class="p-4 font-semibold text-right">Művelet</th>
-                            </tr>
-                        </thead>
-                        <tbody id="invitesTable" class="text-sm text-white/80">
-                            <tr><td colspan="3" class="text-center p-8"><i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto text-indigo-400"></i></td></tr>
+            <div class="overflow-x-auto rounded-xl">
+                <table class="w-full text-left border-collapse bg-black/20">
+                    <thead>
+                        <tr class="border-b border-white/10 text-white/50 text-xs uppercase tracking-wider">
+                            <th class="p-4">Kód</th>
+                            <th class="p-4">Felhasználó</th>
+                            <th class="p-4 text-right">Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invitesTable" class="text-sm text-white/80">
                         </tbody>
-                    </table>
-                </div>
+                </table>
             </div>
         </div>
     </div>
@@ -73,63 +56,35 @@
         }
 
         async function loadInvites() {
-            try {
-                const res = await fetch('/api/admin/invites', { headers: { 'Authorization': `Bearer ${token}` } });
-                const data = await res.json();
-                const tbody = document.getElementById('invitesTable');
-                
-                if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" class="text-center p-10 text-white/30"><i data-lucide="inbox" class="w-8 h-8 mx-auto mb-3 opacity-30"></i>Nincsenek kódok. Generálj egyet!</td></tr>';
-                    lucide.createIcons();
-                    return;
-                }
-
-                tbody.innerHTML = data.map(inv => `
-                    <tr class="border-b border-white/5 hover:bg-white/5 transition group">
-                        <td class="p-4 font-mono text-indigo-300 font-bold tracking-wider">
-                            ${inv.code}<br>
-                            <span class="text-[10px] text-white/30 font-sans font-normal">${new Date(inv.created_at).toLocaleString('hu-HU')}</span>
-                        </td>
-                        <td class="p-4 text-xs">
-                            ${inv.is_used 
-                                ? `<span class="text-red-400 font-semibold flex flex-col gap-1">
-                                     <span class="flex items-center gap-1.5"><i data-lucide="user-check" class="w-3.5 h-3.5"></i> Felhasználva:</span>
-                                     <span class="text-white/60 font-mono">${inv.used_by}</span>
-                                   </span>` 
-                                : '<span class="text-green-400 font-semibold flex items-center gap-1.5"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Szabad</span>'}
-                        </td>
-                        <td class="p-4 text-right">
-                            <button onclick="deleteInvite('${inv.code}')" class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg transition text-xs font-semibold flex items-center justify-center gap-1.5 ml-auto opacity-70 group-hover:opacity-100">
-                                <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> Megvonás / Zárolás
-                            </button>
-                        </td>
-                    </tr>
-                `).join('');
-                lucide.createIcons();
-            } catch(e) { console.error(e); }
+            const res = await fetch('/api/admin/invites', { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            const tbody = document.getElementById('invitesTable');
+            
+            tbody.innerHTML = data.map(inv => `
+                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                    <td class="p-4 font-mono text-indigo-300 font-bold">${inv.code}</td>
+                    <td class="p-4">
+                        ${inv.is_used ? `<span class="text-red-400">Használja: ${inv.used_by}</span>` : '<span class="text-green-400 font-semibold">Szabad</span>'}
+                    </td>
+                    <td class="p-4 text-right">
+                        <button onclick="deleteInvite('${inv.code}')" class="px-3 py-1.5 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition text-xs">
+                            Zárolás / Törlés
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
         }
 
         async function generateInvite() {
-            const btn = document.getElementById('generateBtn');
-            const originalHtml = btn.innerHTML;
-            btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Generálás...';
-            lucide.createIcons();
-            
-            try {
-                const res = await fetch('/api/admin/generate_invite', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-                if (res.ok) { await loadInvites(); }
-            } catch(e) { alert('Hiba történt!'); }
-            
-            btn.innerHTML = originalHtml;
-            lucide.createIcons();
+            const res = await fetch('/api/admin/generate_invite', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) { loadInvites(); }
         }
 
         async function deleteInvite(code) {
-            if(!confirm(`VIGYÁZAT!\nHa visszavonod ezt a kódot, az azt használó felhasználó fiókja ZÁROLVA LESZ!\nBiztos vagy benne?\nKód: ${code}`)) return;
-            try {
-                const res = await fetch(`/api/admin/invites/${code}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-                if (res.ok) { loadInvites(); }
-            } catch(e) { alert('Hiba történt!'); }
+            if(!confirm('VIGYÁZAT: A kód törlése azonnal ZÁROLJA az azt használó felhasználót! Folytatod?')) return;
+            const res = await fetch(`/api/admin/invites/${code}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) { loadInvites(); }
         }
 
         loadInvites();
