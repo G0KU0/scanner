@@ -10,6 +10,7 @@ import threading
 import os
 import json
 import requests
+import uuid
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -143,12 +144,19 @@ async def admin_page(request: Request):
 
 
 @app.post("/api/register")
-async def register(email: str = Form(...), password: str = Form(...)):
+async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
+    
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Érvénytelen vagy már felhasznált meghívó kód!")
+
     if await get_user_by_email(email):
-        raise HTTPException(status_code=400, detail="Foglalt email")
-    await create_user(email, hash_password(password))
+        raise HTTPException(status_code=400, detail="Foglalt email cím")
+    
+    await create_user(email, hash_password(password), invite_code)
+    await mark_invite_used(invite_code, email)
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
@@ -158,6 +166,25 @@ async def login(email: str = Form(...), password: str = Form(...)):
     if not user or not verify_password(password, user["password"]):
         raise HTTPException(status_code=401, detail="Hibás adatok")
     return {"token": create_access_token({"sub": email}), "email": email}
+
+
+@app.get("/api/me")
+async def get_me(current_user=Depends(get_current_user)):
+    return {
+        "email": current_user["email"],
+        "needs_new_invite": current_user.get("needs_new_invite", False)
+    }
+
+
+@app.post("/api/reactivate")
+async def reactivate_account(invite_code: str = Form(...), current_user=Depends(get_current_user)):
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Érvénytelen kód!")
+    
+    await reactivate_user(current_user["email"], invite_code)
+    await mark_invite_used(invite_code, current_user["email"])
+    return {"status": "success"}
 
 
 @app.get("/api/proxy_status")
@@ -211,10 +238,8 @@ async def delete_invite(code: str, current_user=Depends(get_current_user)):
     if current_user["email"] != ADMIN_EMAIL:
         raise HTTPException(status_code=403)
     
-    # Megvonjuk a hozzáférést és zároljuk a usert
     await revoke_invite_and_lock_user(code)
     return {"status": "deleted"}
-
 
 
 @app.post("/api/start")
@@ -224,6 +249,9 @@ async def start_checker(
     threads: int = Form(MAX_WORKERS),
     current_user=Depends(get_current_user),
 ):
+    if current_user.get("needs_new_invite"):
+        raise HTTPException(status_code=403, detail="A fiókod zárolva van!")
+
     if await get_active_run(str(current_user["_id"])):
         raise HTTPException(status_code=400, detail="Már fut egy checker!")
 
@@ -364,6 +392,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
 
             elif result["status"] == "bad":
                 bad += 1
+                # Ezt hozzáadtam: Hogy mindig kiírja a BAD-et is a LOG-ba
                 broadcast_to_user(user_id, json.dumps({
                     "type": "log", "level": "bad",
                     "text": f"[BAD] {email}"
@@ -390,6 +419,7 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
                 "bad": bad, "retries": retries, "total": total,
             }))
 
+    # --- AZ EREDETI SZÁLKEZELÉSED (VÁLTOZATLAN) ---
     def run_parallel():
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
@@ -544,7 +574,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 60)
-    print("  🚀 Hotmail Inboxer - Parallel + Strict Validation")
+    print("  🚀 Hotmail Inboxer VIP - Admin rendszerrel")
     print(f"  📡 http://0.0.0.0:{port}")
     print(f"  🧵 Max {MAX_WORKERS} párhuzamos szál")
     print("=" * 60 + "\n")
