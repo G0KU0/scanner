@@ -22,33 +22,29 @@ except Exception as e:
     print(f"❌ MongoDB hiba: {e}")
     raise
 
-# Gyűjtemények definiálása
 users_collection = database.users
 runs_collection = database.runs
 invites_collection = database.invites
 
 
 async def create_user(email: str, hashed_password: str, invite_code: str = None):
-    """Új felhasználó létrehozása a meghívó kóddal összekötve."""
     user = {
         "email": email,
         "password": hashed_password,
         "created_at": datetime.now(timezone.utc),
         "is_active": True,
         "current_invite_code": invite_code,
-        "needs_new_invite": False  # Alapértelmezetten nincs zárolva
+        "needs_new_invite": False
     }
     result = await users_collection.insert_one(user)
     return str(result.inserted_id)
 
 
 async def get_user_by_email(email: str):
-    """Felhasználó lekérése email alapján."""
     return await users_collection.find_one({"email": email})
 
 
 async def create_run(user_id: str, keyword: str, total: int):
-    """Új checker futtatás rekord létrehozása."""
     run = {
         "user_id": user_id,
         "keyword": keyword,
@@ -73,39 +69,33 @@ async def create_run(user_id: str, keyword: str, total: int):
 
 
 async def delete_old_runs(user_id: str, keep_run_id: str):
-    """A felhasználó korábbi futtatásainak törlése, kivéve a jelenlegit."""
     try:
         await runs_collection.delete_many({
             "user_id": user_id,
             "_id": {"$ne": ObjectId(keep_run_id)}
         })
-        print(f"🗑️ Előző futtatások törölve a MongoDB-ből. (User: {user_id})")
-    except Exception as e:
-        print(f"❌ Hiba a régi futtatások törlésekor: {e}")
+    except Exception:
+        pass
 
 
 async def get_run(run_id: str):
-    """Egy adott futtatás lekérése."""
     try:
         return await runs_collection.find_one({"_id": ObjectId(run_id)})
-    except Exception as e:
-        print(f"❌ get_run hiba [{run_id}]: {e}")
+    except Exception:
         return None
 
 
 async def update_run_stats(run_id: str, stats: dict):
-    """Futtatási statisztikák (számok) frissítése."""
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$set": stats}
         )
-    except Exception as e:
-        print(f"❌ update_run_stats hiba: {e}")
+    except Exception:
+        pass
 
 
 async def update_run_status_only(run_id: str, status: str):
-    """Futtatási állapot (running/finished) frissítése."""
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
@@ -114,44 +104,40 @@ async def update_run_status_only(run_id: str, status: str):
                 "finished_at": datetime.now(timezone.utc) if status == "finished" else None
             }}
         )
-    except Exception as e:
-        print(f"❌ update_run_status_only hiba: {e}")
+    except Exception:
+        pass
 
 
 async def add_result_to_run(run_id: str, result_type: str, line: str):
-    """Egy talált sor (hit/custom) hozzáadása a listához."""
     field = "hit_lines" if result_type == "hit" else "custom_lines"
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$push": {field: line}}
         )
-    except Exception as e:
-        print(f"❌ add_result_to_run hiba: {e}")
+    except Exception:
+        pass
 
 
 async def add_result_details_to_run(run_id: str, result_type: str, data: dict):
-    """Részletes találati JSON objektum mentése."""
     field = "hit_details" if result_type == "hit" else "custom_details"
     try:
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
             {"$push": {field: data}}
         )
-    except Exception as e:
-        print(f"❌ add_result_details hiba: {e}")
+    except Exception:
+        pass
 
 
 async def get_user_finished_runs(user_id: str):
-    """Befejezett futtatások lekérése a történethez."""
     cursor = runs_collection.find(
         {"user_id": user_id, "status": "finished"}
     ).sort("started_at", -1)
-    return await cursor.to_list(length=10)
+    return await cursor.to_list(length=1)
 
 
 async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
-    """Futtatás véglegesítése és a felesleges nagy adatok törlése a DB méretének csökkentése érdekében."""
     try:
         update_data = {
             "status": "finished",
@@ -174,20 +160,18 @@ async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
                 }
             }
         )
-    except Exception as e:
-        print(f"❌ finish_and_clean_run hiba: {e}")
+    except Exception:
+        pass
 
 
 async def get_active_run(user_id: str):
-    """Aktív (még futó) folyamat keresése a felhasználóhoz."""
     return await runs_collection.find_one(
         {"user_id": user_id, "status": "running"}
     )
 
-# --- INVITE & LOCK RENDSZER FUNKCIÓK ---
+# --- ADMIN / MEGHÍVÓ RENDSZER ---
 
 async def create_invite_code(code: str):
-    """Új meghívó kód rekord létrehozása."""
     invite = {
         "code": code,
         "created_at": datetime.now(timezone.utc),
@@ -199,12 +183,11 @@ async def create_invite_code(code: str):
 
 
 async def get_invite_code(code: str):
-    """Egy meghívó kód állapotának ellenőrzése."""
     return await invites_collection.find_one({"code": code})
 
 
 async def mark_invite_used(code: str, email: str):
-    """Meghívó kód megjelölése felhasználtként."""
+    """A kódot megjelöljük felhasználtként, hogy az admin lássa ki használta."""
     await invites_collection.update_one(
         {"code": code},
         {"$set": {"is_used": True, "used_by": email}}
@@ -212,24 +195,21 @@ async def mark_invite_used(code: str, email: str):
 
 
 async def revoke_invite_and_lock_user(code: str):
-    """Egy kód visszavonása, ami azonnal zárolja az azt használó felhasználót."""
-    # Zároljuk a felhasználót, akinek ez volt a kódja
+    """Zárolja azt a fiókot, ami ezt a kódot használta, majd törli a kódot."""
     await users_collection.update_many(
         {"current_invite_code": code},
         {"$set": {"needs_new_invite": True}}
     )
-    # Töröljük a kódot az elérhető listából
     await invites_collection.delete_one({"code": code})
 
 
 async def get_all_invites():
-    """Összes kód lekérése az admin számára."""
     cursor = invites_collection.find().sort("created_at", -1)
     return await cursor.to_list(length=100)
 
 
 async def reactivate_user(email: str, new_code: str):
-    """Zárolt fiók feloldása egy új érvényes kóddal."""
+    """Feloldja a zárolt felhasználót egy új kóddal."""
     await users_collection.update_one(
         {"email": email},
         {"$set": {"needs_new_invite": False, "current_invite_code": new_code}}
