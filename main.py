@@ -290,48 +290,83 @@ async def admin_page(request: Request):
 
 @app.get("/api/setup-admin")
 async def setup_admin():
-    """
-    Meglévő usert admin-ra állítja.
-    ⚠️ EGYSZER FUTTASD, UTÁNA TÖRÖLD VAGY KOMMENTELD KI!
-    """
+    admin_email = "xat.king6969@gmail.com"
+
+    existing = await get_user_by_email(admin_email)
+
+    # DEBUG: Lássuk mi van a DB-ben
+    if existing:
+        return {
+            "status": "FOUND",
+            "email": existing.get("email"),
+            "is_admin": existing.get("is_admin", False),
+            "invite_active": existing.get("invite_active", "NINCS BEÁLLÍTVA"),
+            "invite_code": existing.get("invite_code", "NINCS"),
+            "message": "Most frissítem admin-ra...",
+        }
+    else:
+        return {
+            "status": "NOT_FOUND", 
+            "message": f"{admin_email} NINCS a DB-ben!"
+        }
+
+
+@app.get("/api/force-admin")
+async def force_admin():
+    """Ez BIZTOSAN beállítja admin-ra"""
     admin_email = "xat.king6969@gmail.com"
 
     existing = await get_user_by_email(admin_email)
 
     if not existing:
-        await users_collection.insert_one(
-            {
-                "email": admin_email,
-                "password": hash_password("admin123456"),
-                "is_admin": True,
-                "invite_code": "SYSTEM_ADMIN",
-                "invite_active": True,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc),
-            }
-        )
-        return {
-            "status": "success",
-            "message": f"Admin létrehozva: {admin_email}",
-            "password": "admin123456",
-            "info": "TÖRÖLD EZT AZ ENDPOINTOT ÉS DEPLOY-OLJ ÚJRA!",
-        }
+        # Ha nincs ilyen user, létrehozzuk
+        await users_collection.insert_one({
+            "email": admin_email,
+            "password": hash_password("admin123456"),
+            "is_admin": True,
+            "invite_code": "SYSTEM_ADMIN",
+            "invite_active": True,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc),
+        })
+        return {"status": "CREATED", "message": f"{admin_email} admin LÉTREHOZVA!"}
 
-    await users_collection.update_one(
+    # Ha létezik, MINDENT beállítunk
+    result = await users_collection.update_one(
         {"email": admin_email},
-        {
-            "$set": {
-                "is_admin": True,
-                "invite_active": True,
-                "invite_code": existing.get("invite_code", "SYSTEM_ADMIN"),
-            }
-        },
+        {"$set": {
+            "is_admin": True,
+            "invite_active": True,
+            "is_active": True,
+            "invite_code": existing.get("invite_code") or "SYSTEM_ADMIN",
+        }}
     )
 
+    # Ellenőrzés
+    updated = await get_user_by_email(admin_email)
+
     return {
-        "status": "success",
-        "message": f"{admin_email} mostantól ADMIN!",
-        "info": "TÖRÖLD EZT AZ ENDPOINTOT ÉS DEPLOY-OLJ ÚJRA!",
+        "status": "UPDATED",
+        "modified": result.modified_count,
+        "is_admin_now": updated.get("is_admin"),
+        "invite_active_now": updated.get("invite_active"),
+        "message": f"{admin_email} ADMIN BEÁLLÍTVA! Jelentkezz ki és vissza!"
+    }
+
+
+@app.get("/api/check-me")
+async def check_me():
+    """Ellenőrzi a bejelentkezett user adatait"""
+    admin_email = "xat.king6969@gmail.com"
+    user = await get_user_by_email(admin_email)
+    if not user:
+        return {"error": "User nem található"}
+    return {
+        "email": user.get("email"),
+        "is_admin": user.get("is_admin", False),
+        "invite_active": user.get("invite_active", "NINCS"),
+        "invite_code": user.get("invite_code", "NINCS"),
+        "is_active": user.get("is_active", "NINCS"),
     }
 
 
