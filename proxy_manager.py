@@ -13,7 +13,6 @@ class ProxyManager:
         self.lock = threading.Lock()
         self.last_fetch = 0
         self.tested = False
-
         self.PROXY_URL = "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text"
 
     def fetch_proxies(self) -> int:
@@ -33,7 +32,6 @@ class ProxyManager:
                         port = parts[1].strip()
                         if self._is_valid_proxy(ip, port):
                             raw_proxies.add(f"{ip}:{port}")
-
                 print(f"  ✅ {len(raw_proxies)} proxy letöltve")
             else:
                 print(f"  ❌ HTTP {resp.status_code}")
@@ -81,7 +79,6 @@ class ProxyManager:
                         return {"ip_port": ip_port, "protocol": proto}
             except:
                 continue
-
         return None
 
     def _build_proxy_dict(self, ip_port: str, protocol: str) -> dict:
