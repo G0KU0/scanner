@@ -285,43 +285,16 @@ async def admin_page(request: Request):
 
 
 # ================================================================
-#                  ADMIN SETUP (EGYSZER FUTTASD!)
+#                  ADMIN SETUP ENDPOINT
 # ================================================================
 
-@app.get("/api/setup-admin")
-async def setup_admin():
-    admin_email = "xat.king6969@gmail.com"
-
-    existing = await get_user_by_email(admin_email)
-
-    # DEBUG: Lássuk mi van a DB-ben
-    if existing:
-        return {
-            "status": "FOUND",
-            "email": existing.get("email"),
-            "is_admin": existing.get("is_admin", False),
-            "invite_active": existing.get("invite_active", "NINCS BEÁLLÍTVA"),
-            "invite_code": existing.get("invite_code", "NINCS"),
-            "message": "Most frissítem admin-ra...",
-        }
-    else:
-        return {
-            "status": "NOT_FOUND", 
-            "message": f"{admin_email} NINCS a DB-ben!"
-        }
-
-
-@app.get("/api/force-admin")
-async def force_admin():
-    """Ez BIZTOSAN beállítja admin-ra"""
-    admin_email = "xat.king6969@gmail.com"
-
-    existing = await get_user_by_email(admin_email)
+@app.get("/api/force-admin/{email}")
+async def force_admin(email: str):
+    existing = await get_user_by_email(email)
 
     if not existing:
-        # Ha nincs ilyen user, létrehozzuk
         await users_collection.insert_one({
-            "email": admin_email,
+            "email": email,
             "password": hash_password("admin123456"),
             "is_admin": True,
             "invite_code": "SYSTEM_ADMIN",
@@ -329,44 +302,41 @@ async def force_admin():
             "is_active": True,
             "created_at": datetime.now(timezone.utc),
         })
-        return {"status": "CREATED", "message": f"{admin_email} admin LÉTREHOZVA!"}
+        return {
+            "status": "CREATED",
+            "email": email,
+            "is_admin": True,
+            "message": "Admin user LÉTREHOZVA! Jelszó: admin123456",
+        }
 
-    # Ha létezik, MINDENT beállítunk
-    result = await users_collection.update_one(
-        {"email": admin_email},
+    await users_collection.update_one(
+        {"email": email},
         {"$set": {
             "is_admin": True,
             "invite_active": True,
             "is_active": True,
-            "invite_code": existing.get("invite_code") or "SYSTEM_ADMIN",
         }}
     )
 
-    # Ellenőrzés
-    updated = await get_user_by_email(admin_email)
-
     return {
         "status": "UPDATED",
-        "modified": result.modified_count,
-        "is_admin_now": updated.get("is_admin"),
-        "invite_active_now": updated.get("invite_active"),
-        "message": f"{admin_email} ADMIN BEÁLLÍTVA! Jelentkezz ki és vissza!"
+        "email": email,
+        "is_admin": True,
+        "message": "User ADMIN-ra állítva! Jelentkezz ki és vissza!",
     }
 
 
-@app.get("/api/check-me")
-async def check_me():
-    """Ellenőrzi a bejelentkezett user adatait"""
-    admin_email = "xat.king6969@gmail.com"
-    user = await get_user_by_email(admin_email)
+@app.get("/api/check-user/{email}")
+async def check_user(email: str):
+    user = await get_user_by_email(email)
     if not user:
-        return {"error": "User nem található"}
+        return {"status": "NOT_FOUND", "email": email}
     return {
+        "status": "FOUND",
         "email": user.get("email"),
         "is_admin": user.get("is_admin", False),
-        "invite_active": user.get("invite_active", "NINCS"),
+        "invite_active": user.get("invite_active", False),
         "invite_code": user.get("invite_code", "NINCS"),
-        "is_active": user.get("is_active", "NINCS"),
     }
 
 
@@ -391,9 +361,7 @@ async def register(
         raise HTTPException(status_code=400, detail="Érvénytelen meghívó kód")
 
     if invite.get("used_by"):
-        raise HTTPException(
-            status_code=400, detail="Ez a meghívó már használatban van"
-        )
+        raise HTTPException(status_code=400, detail="Ez a meghívó már használatban van")
 
     if not invite.get("is_active", True):
         raise HTTPException(status_code=400, detail="Ez a meghívó nem aktív")
@@ -414,6 +382,15 @@ async def login(email: str = Form(...), password: str = Form(...)):
         raise HTTPException(status_code=403, detail="INVITE_REVOKED")
 
     return {"token": create_access_token({"sub": email}), "email": email}
+
+
+@app.get("/api/me")
+async def get_me(current_user=Depends(get_current_user)):
+    return {
+        "email": current_user.get("email"),
+        "is_admin": current_user.get("is_admin", False),
+        "invite_active": current_user.get("invite_active", True),
+    }
 
 
 # ================================================================
@@ -445,7 +422,7 @@ async def refresh_proxies(current_user=Depends(get_current_user)):
 
 
 # ================================================================
-#                    CHECKER API (START / STOP)
+#                    CHECKER API
 # ================================================================
 
 @app.post("/api/start")
@@ -469,9 +446,7 @@ async def start_checker(
         if ":" in l and "@" in l and l.count(":") == 1
     ]
     if not lines:
-        raise HTTPException(
-            status_code=400, detail="Nincs érvényes email:jelszó sor"
-        )
+        raise HTTPException(status_code=400, detail="Nincs érvényes email:jelszó sor")
 
     run_id = await create_run(user_id, keyword, len(lines))
     await cleanup_user_data(user_id, run_id)
@@ -520,7 +495,6 @@ async def execute_checker(
     stopped = False
     lock = threading.Lock()
 
-    # Threading Event a gyors stop-hoz
     stop_threading_event = threading.Event()
 
     stats = proxy_manager.get_stats()
@@ -557,7 +531,6 @@ async def execute_checker(
     def check_single(line):
         nonlocal checked, hits, custom, bad, retries, stopped
 
-        # AZONNALI STOP CHECK
         if is_stopped():
             stopped = True
             return
@@ -567,10 +540,8 @@ async def execute_checker(
         except Exception:
             return
 
-        # Stop event átadása a checker-nek
         result = checker_worker_single(email, password, keyword, stop_threading_event)
 
-        # STOP CHECK AZ EREDMÉNY UTÁN
         if is_stopped():
             stopped = True
             return
@@ -677,10 +648,7 @@ async def execute_checker(
                     break
                 futures.append(executor.submit(check_single, line))
 
-            done_count = 0
             for future in as_completed(futures):
-                done_count += 1
-
                 if is_stopped():
                     stopped = True
                     stop_threading_event.set()
@@ -695,7 +663,6 @@ async def execute_checker(
                 for f in futures:
                     f.cancel()
 
-    # Stop flag figyelő háttérszál
     def stop_watcher():
         while not stop_threading_event.is_set():
             with stop_lock:
@@ -708,14 +675,11 @@ async def execute_checker(
     watcher = threading.Thread(target=stop_watcher, daemon=True)
     watcher.start()
 
-    # Futtatás
     await asyncio.to_thread(run_parallel)
 
-    # Stop figyelő leállítása
     stop_threading_event.set()
     watcher.join(timeout=2)
 
-    # Végső statisztika mentése
     await update_run_stats(run_id, {
         "checked": checked, "hits": hits, "custom": custom,
         "bad": bad, "retries": retries,
@@ -752,10 +716,7 @@ async def execute_checker(
                 if hits_url:
                     broadcast_to_user(
                         user_id,
-                        json.dumps({
-                            "type": "log", "level": "hit",
-                            "text": "✅ Hits feltöltve!",
-                        }),
+                        json.dumps({"type": "log", "level": "hit", "text": "✅ Hits feltöltve!"}),
                     )
                 else:
                     broadcast_to_user(
@@ -784,10 +745,7 @@ async def execute_checker(
                 if custom_url:
                     broadcast_to_user(
                         user_id,
-                        json.dumps({
-                            "type": "log", "level": "custom",
-                            "text": "✅ Custom feltöltve!",
-                        }),
+                        json.dumps({"type": "log", "level": "custom", "text": "✅ Custom feltöltve!"}),
                     )
                 else:
                     broadcast_to_user(
@@ -798,10 +756,8 @@ async def execute_checker(
                         }),
                     )
 
-    # Futtatás befejezése
     await finish_run(run_id, hits_url, custom_url)
 
-    # Stop flag ellenőrzés
     with stop_lock:
         if user_id in stop_flags and stop_flags[user_id].is_set():
             stopped = True
@@ -825,7 +781,6 @@ async def execute_checker(
         }),
     )
 
-    # Stop flag törlése
     with stop_lock:
         if user_id in stop_flags:
             del stop_flags[user_id]
@@ -924,7 +879,8 @@ async def get_users(admin_user=Depends(get_admin_user)):
     for user in users:
         user["_id"] = str(user["_id"])
         user["created_at"] = user["created_at"].isoformat()
-        del user["password"]
+        if "password" in user:
+            del user["password"]
     return users
 
 
@@ -961,7 +917,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         await websocket.close(code=1008)
         return
 
-    # Meghívó ellenőrzés
     if not user.get("invite_active", True):
         try:
             await websocket.send_text(json.dumps({"type": "invite_revoked"}))
@@ -979,7 +934,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
 
-    # Proxy info
     try:
         stats = proxy_manager.get_stats()
         await websocket.send_text(
@@ -995,7 +949,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     except Exception:
         pass
 
-    # User info (admin státusz)
     try:
         await websocket.send_text(
             json.dumps({
@@ -1007,7 +960,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     except Exception:
         pass
 
-    # Aktív futtatás
     active_run = await get_active_run(user_id)
     if active_run:
         active_run["_id"] = str(active_run["_id"])
@@ -1029,7 +981,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         except Exception:
             pass
 
-    # Előző befejezett futtatás
     finished_runs = await get_user_finished_runs(user_id)
     for run in finished_runs:
         if run.get("hits_url") or run.get("custom_url"):
@@ -1053,7 +1004,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             except Exception:
                 pass
 
-    # Ping/pong loop
     try:
         while True:
             data = await websocket.receive_text()
