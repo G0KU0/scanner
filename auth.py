@@ -53,12 +53,33 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
             )
+
+        # ✅ MEGHÍVÓ ELLENŐRZÉS
+        if not user.get("invite_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="INVITE_REVOKED"
+            )
+
         return user
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"
         )
+
+
+async def get_admin_user(current_user=Depends(get_current_user)):
+    """
+    Admin jogosultság ellenőrzése.
+    Csak is_admin=True usereket enged tovább.
+    """
+    if not current_user.get("is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin rights required"
+        )
+    return current_user
 
 
 def decode_token(token: str):
