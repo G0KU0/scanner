@@ -146,28 +146,34 @@ async def finish_and_clean_run(run_id: str, hits_url: str, custom_url: str):
             "status": "finished",
             "finished_at": datetime.now(timezone.utc)
         }
+
+        unset_data = {}
+
         if hits_url:
             update_data["hits_url"] = hits_url
+            # ✅ Feltöltve → töröljük a DB-ből
+            unset_data["hit_lines"] = ""
+            unset_data["hit_details"] = ""
+            print(f"  🗑️ hit_lines törölve DB-ből (URL: {hits_url})")
+        else:
+            print(f"  ⚠️ hit_lines MARAD DB-ben (nincs külső URL)")
+
         if custom_url:
             update_data["custom_url"] = custom_url
+            # ✅ Feltöltve → töröljük a DB-ből
+            unset_data["custom_lines"] = ""
+            unset_data["custom_details"] = ""
+            print(f"  🗑️ custom_lines törölve DB-ből (URL: {custom_url})")
+        else:
+            print(f"  ⚠️ custom_lines MARAD DB-ben (nincs külső URL)")
+
+        update_query = {"$set": update_data}
+        if unset_data:
+            update_query["$unset"] = unset_data
 
         await runs_collection.update_one(
             {"_id": ObjectId(run_id)},
-            {
-                "$set": update_data,
-                "$unset": {
-                    "hit_lines": "",
-                    "custom_lines": "",
-                    "hit_details": "",
-                    "custom_details": ""
-                }
-            }
+            update_query
         )
     except Exception as e:
         print(f"❌ finish_and_clean_run hiba [{run_id}]: {e}")
-
-
-async def get_active_run(user_id: str):
-    return await runs_collection.find_one(
-        {"user_id": user_id, "status": "running"}
-    )
