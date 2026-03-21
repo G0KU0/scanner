@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Hotmail Checker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0a1a;
+            color: white;
+            min-height: 100vh;
+        }
+
+        /* NAVBAR */
+        .navbar {
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0 30px;
+            height: 65px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .navbar-brand-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .navbar-brand-icon i { font-size: 18px; color: white; }
+
+        .navbar-brand h2 { font-size: 18px; font-weight: 700; }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-back {
+            background: rgba(102,126,234,0.15);
+            color: #667eea;
+            border: 1px solid rgba(102,126,234,0.3);
+        }
+
+        .btn-back:hover { background: rgba(102,126,234,0.25); }
+
+        .btn-logout {
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .btn-logout:hover {
+            background: rgba(231,76,60,0.2);
+            color: #e74c3c;
+            border-color: rgba(231,76,60,0.3);
+        }
+
+        .btn-create {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            color: white;
+        }
+
+        .btn-create:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(46,204,113,0.3);
+        }
+
+        .btn-danger {
+            background: rgba(231,76,60,0.15);
+            color: #e74c3c;
+            border: 1px solid rgba(231,76,60,0.3);
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .btn-danger:hover {
+            background: rgba(231,76,60,0.3);
+        }
+
+        .btn-success {
+            background: rgba(46,204,113,0.15);
+            color: #2ecc71;
+            border: 1px solid rgba(46,204,113,0.3);
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .btn-success:hover {
+            background: rgba(46,204,113,0.3);
+        }
+
+        .btn-warning {
+            background: rgba(243,156,18,0.15);
+            color: #f39c12;
+            border: 1px solid rgba(243,156,18,0.3);
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .btn-warning:hover {
+            background: rgba(243,156,18,0.3);
+        }
+
+        .btn-copy {
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 6px 10px;
+            font-size: 11px;
+        }
+
+        .btn-copy:hover { color: white; }
+
+        /* MAIN */
+        .main-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px;
+        }
+
+        /* STATS */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .stat-card .stat-icon {
+            width: 50px; height: 50px;
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .stat-card .stat-icon i { font-size: 22px; color: white; }
+
+        .stat-card:nth-child(1) .stat-icon { background: rgba(102,126,234,0.2); }
+        .stat-card:nth-child(2) .stat-icon { background: rgba(46,204,113,0.2); }
+        .stat-card:nth-child(3) .stat-icon { background: rgba(52,152,219,0.2); }
+        .stat-card:nth-child(4) .stat-icon { background: rgba(231,76,60,0.2); }
+
+        .stat-card .stat-number {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .stat-label {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* SECTIONS */
+        .section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 20px;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+
+        .section-header {
+            padding: 20px 25px;
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-header h3 {
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-header h3 i { color: #667eea; }
+
+        .section-body {
+            padding: 5px;
+        }
+
+        /* TABLE */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 14px 20px;
+            text-align: left;
+        }
+
+        th {
+            color: rgba(255,255,255,0.4);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+
+        td {
+            font-size: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        tr:hover td {
+            background: rgba(255,255,255,0.02);
+        }
+
+        /* BADGES */
+        .badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-active {
+            background: rgba(46,204,113,0.15);
+            color: #2ecc71;
+            border: 1px solid rgba(46,204,113,0.2);
+        }
+
+        .badge-used {
+            background: rgba(243,156,18,0.15);
+            color: #f39c12;
+            border: 1px solid rgba(243,156,18,0.2);
+        }
+
+        .badge-inactive {
+            background: rgba(231,76,60,0.15);
+            color: #e74c3c;
+            border: 1px solid rgba(231,76,60,0.2);
+        }
+
+        .badge-admin {
+            background: rgba(155,89,182,0.15);
+            color: #9b59b6;
+            border: 1px solid rgba(155,89,182,0.2);
+        }
+
+        /* CODE BOX */
+        .code-box {
+            background: rgba(255,255,255,0.06);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+        }
+
+        /* EMPTY STATE */
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: rgba(255,255,255,0.3);
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .empty-state p { font-size: 15px; }
+
+        /* ACTION GROUP */
+        .action-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* TOAST */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            z-index: 9999;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.4s;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success { border-left: 4px solid #2ecc71; }
+        .toast.error { border-left: 4px solid #e74c3c; }
+        .toast.info { border-left: 4px solid #3498db; }
+
+        /* MODAL */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 35px;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .modal h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+
+        .modal p {
+            color: rgba(255,255,255,0.6);
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+
+        .modal .code-display {
+            background: rgba(102,126,234,0.1);
+            border: 2px dashed rgba(102,126,234,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 18px;
+            color: #667eea;
+            letter-spacing: 1px;
+            cursor: pointer;
+        }
+
+        .modal .code-display:hover {
+            background: rgba(102,126,234,0.15);
+        }
+
+        .modal .modal-btns {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .modal .modal-btns .btn {
+            min-width: 120px;
+            justify-content: center;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 900px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            table { font-size: 13px; }
+            th, td { padding: 10px 12px; }
+        }
+
+        @media (max-width: 600px) {
+            .main-content { padding: 15px; }
+            .navbar { padding: 0 15px; }
+            .action-group { flex-direction: column; }
+            .section-header { flex-direction: column; gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="newInviteModal">
+        <div class="modal">
+            <h3>🎉 Új meghívó létrehozva!</h3>
+            <p>Másold ki és küldd el annak, akit meg akarsz hívni.<br>Minden meghívó csak egyszer használható.</p>
+            <div class="code-display" id="newInviteCode" onclick="copyToClipboard(this.textContent)">
+                -
+            </div>
+            <div class="modal-btns">
+                <button class="btn btn-create" onclick="copyToClipboard(document.getElementById('newInviteCode').textContent)">
+                    <i class="fas fa-copy"></i> Másolás
+                </button>
+                <button class="btn btn-back" onclick="closeModal()">
+                    <i class="fas fa-check"></i> Bezárás
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div class="toast" id="toast"></div>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <div class="navbar-brand-icon">
+                <i class="fas fa-shield-alt"></i>
+            </div>
+            <h2>Admin Panel</h2>
+        </div>
+        <div class="navbar-right">
+            <button class="btn btn-back" onclick="window.location.href='/dashboard'">
+                <i class="fas fa-arrow-left"></i> Dashboard
+            </button>
+            <button class="btn btn-logout" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i> Kilépés
+            </button>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <!-- STATS -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-ticket-alt"></i></div>
+                <div class="stat-number" id="totalInvites">-</div>
+                <div class="stat-label">Összes Meghívó</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                <div class="stat-number" id="usedInvites">-</div>
+                <div class="stat-label">Felhasznált</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                <div class="stat-number" id="activeUsers">-</div>
+                <div class="stat-label">Aktív Userek</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-user-slash"></i></div>
+                <div class="stat-number" id="blockedUsers">-</div>
+                <div class="stat-label">Letiltott</div>
+            </div>
+        </div>
+
+        <!-- INVITES -->
+        <div class="section">
+            <div class="section-header">
+                <h3><i class="fas fa-ticket-alt"></i> Meghívó Kódok</h3>
+                <button class="btn btn-create" onclick="createInvite()">
+                    <i class="fas fa-plus"></i> Új Meghívó
+                </button>
+            </div>
+            <div class="section-body" id="invitesBody">
+                <div class="empty-state">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Betöltés...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- USERS -->
+        <div class="section">
+            <div class="section-header">
+                <h3><i class="fas fa-users"></i> Regisztrált Felhasználók</h3>
+            </div>
+            <div class="section-body" id="usersBody">
+                <div class="empty-state">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Betöltés...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/';
+
+        // ==================== TOAST ====================
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i> ${message}`;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // ==================== MODAL ====================
+        function closeModal() {
+            document.getElementById('newInviteModal').classList.remove('active');
+        }
+
+        // ==================== CLIPBOARD ====================
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text.trim()).then(() => {
+                showToast('Kód vágólapra másolva!', 'success');
+            });
+        }
+
+        // ==================== LOAD INVITES ====================
+        async function loadInvites() {
+            try {
+                const res = await fetch('/api/admin/invites', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.status === 403) {
+                    alert('Nincs admin jogosultságod!');
+                    window.location.href = '/dashboard';
+                    return;
+                }
+
+                const invites = await res.json();
+
+                document.getElementById('totalInvites').textContent = invites.length;
+                document.getElementById('usedInvites').textContent = invites.filter(i => i.used_by).length;
+
+                if (invites.length === 0) {
+                    document.getElementById('invitesBody').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-ticket-alt"></i>
+                            <p>Még nincs meghívó kód. Hozz létre egyet!</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Meghívó Kód</th>
+                                <th>Létrehozva</th>
+                                <th>Státusz</th>
+                                <th>Használta</th>
+                                <th>Használat Ideje</th>
+                                <th>Műveletek</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                invites.forEach(inv => {
+                    let statusBadge;
+                    if (inv.used_by) {
+                        statusBadge = '<span class="badge badge-used">Használatban</span>';
+                    } else if (inv.is_active) {
+                        statusBadge = '<span class="badge badge-active">Szabad</span>';
+                    } else {
+                        statusBadge = '<span class="badge badge-inactive">Inaktív</span>';
+                    }
+
+                    const created = new Date(inv.created_at).toLocaleString('hu-HU');
+                    const usedAt = inv.used_at ? new Date(inv.used_at).toLocaleString('hu-HU') : '-';
+
+                    html += `
+                        <tr>
+                            <td>
+                                <span class="code-box">
+                                    ${inv.code}
+                                    <button class="btn-copy" onclick="copyToClipboard('${inv.code}')">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </span>
+                            </td>
+                            <td>${created}</td>
+                            <td>${statusBadge}</td>
+                            <td>${inv.used_by || '<span style="color:rgba(255,255,255,0.2)">-</span>'}</td>
+                            <td>${usedAt}</td>
+                            <td>
+                                <div class="action-group">
+                                    <button class="btn btn-danger" onclick="deleteInvite('${inv.code}')">
+                                        <i class="fas fa-trash"></i> Törlés
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                document.getElementById('invitesBody').innerHTML = html;
+            } catch (err) {
+                console.error(err);
+                showToast('Hiba a meghívók betöltésekor!', 'error');
+            }
+        }
+
+        // ==================== LOAD USERS ====================
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/admin/users', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const users = await res.json();
+
+                const active = users.filter(u => u.invite_active !== false).length;
+                const blocked = users.filter(u => u.invite_active === false).length;
+
+                document.getElementById('activeUsers').textContent = active;
+                document.getElementById('blockedUsers').textContent = blocked;
+
+                if (users.length === 0) {
+                    document.getElementById('usersBody').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-users"></i>
+                            <p>Még nincs regisztrált felhasználó.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Meghívó Kód</th>
+                                <th>Regisztráció</th>
+                                <th>Státusz</th>
+                                <th>Típus</th>
+                                <th>Műveletek</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                users.forEach(user => {
+                    const isActive = user.invite_active !== false;
+                    const statusBadge = isActive
+                        ? '<span class="badge badge-active">Aktív</span>'
+                        : '<span class="badge badge-inactive">Letiltva</span>';
+
+                    const typeBadge = user.is_admin
+                        ? '<span class="badge badge-admin">ADMIN</span>'
+                        : '<span style="color:rgba(255,255,255,0.3)">User</span>';
+
+                    const created = new Date(user.created_at).toLocaleString('hu-HU');
+
+                    const toggleBtn = user.is_admin ? '' : `
+                        <button class="btn ${isActive ? 'btn-danger' : 'btn-success'}" onclick="toggleUser('${user.email}')">
+                            <i class="fas fa-${isActive ? 'ban' : 'check'}"></i>
+                            ${isActive ? 'Letiltás' : 'Engedélyezés'}
+                        </button>
+                    `;
+
+                    html += `
+                        <tr>
+                            <td><strong>${user.email}</strong></td>
+                            <td><span class="code-box" style="font-size:11px">${user.invite_code || '-'}</span></td>
+                            <td>${created}</td>
+                            <td>${statusBadge}</td>
+                            <td>${typeBadge}</td>
+                            <td>
+                                <div class="action-group">
+                                    ${toggleBtn}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                document.getElementById('usersBody').innerHTML = html;
+            } catch (err) {
+                console.error(err);
+                showToast('Hiba a userek betöltésekor!', 'error');
+            }
+        }
+
+        // ==================== CREATE INVITE ====================
+        async function createInvite() {
+            try {
+                const res = await fetch('/api/admin/invites/create', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) {
+                    showToast('Hiba a meghívó létrehozásakor!', 'error');
+                    return;
+                }
+
+                const invite = await res.json();
+                document.getElementById('newInviteCode').textContent = invite.code;
+                document.getElementById('newInviteModal').classList.add('active');
+
+                loadInvites();
+                showToast('Meghívó sikeresen létrehozva!', 'success');
+            } catch (err) {
+                showToast('Hálózati hiba!', 'error');
+            }
+        }
+
+        // ==================== DELETE INVITE ====================
+        async function deleteInvite(code) {
+            if (!confirm(
+                `⚠️ Biztosan törlöd ezt a meghívót?\n\n` +
+                `Kód: ${code}\n\n` +
+                `A meghívóval regisztrált felhasználók AZONNAL LETILTÁSRA kerülnek ` +
+                `és nem tudják használni a weboldalt, amíg nem kapnak új meghívót!`
+            )) return;
+
+            try {
+                const res = await fetch(`/api/admin/invites/${code}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    showToast('Meghívó törölve, userek letiltva!', 'success');
+                    loadInvites();
+                    loadUsers();
+                } else {
+                    showToast('Hiba a törlés során!', 'error');
+                }
+            } catch (err) {
+                showToast('Hálózati hiba!', 'error');
+            }
+        }
+
+        // ==================== TOGGLE USER ====================
+        async function toggleUser(email) {
+            try {
+                const res = await fetch(`/api/admin/users/${email}/toggle`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast(
+                        `${email} ${data.invite_active ? 'engedélyezve' : 'letiltva'}!`,
+                        data.invite_active ? 'success' : 'info'
+                    );
+                    loadUsers();
+                } else {
+                    showToast('Hiba a művelet során!', 'error');
+                }
+            } catch (err) {
+                showToast('Hálózati hiba!', 'error');
+            }
+        }
+
+        // ==================== LOGOUT ====================
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('email');
+            window.location.href = '/';
+        }
+
+        // ==================== AUTO REFRESH ====================
+        setInterval(() => {
+            loadInvites();
+            loadUsers();
+        }, 30000);
+
+        // ==================== INIT ====================
+        loadInvites();
+        loadUsers();
+    </script>
+</body>
+</html>
